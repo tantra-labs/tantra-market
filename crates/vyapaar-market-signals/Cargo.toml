@@ -6,5 +6,9 @@ license.workspace = true
 
 [dependencies]
 vyapaar-core = { workspace = true }
+vyapaar-market-indicators = { workspace = true }
+rust_decimal = { workspace = true }
+chrono = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
