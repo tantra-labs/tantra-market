@@ -1,0 +1,10 @@
+[package]
+name = "vyapaar-market-indicators"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+vyapaar-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
