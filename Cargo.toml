@@ -23,10 +23,43 @@ license = "AGPL-3.0"
 repository = "https://github.com/vyapaar-labs/vyapaar-market"
 
 [workspace.dependencies]
+# Internal cross-repo kernel
 vyapaar-core = { path = "../vyapaar-core" }
-tokio = { version = "1", features = ["full"] }
+# Internal market-data crates (Tier 2A port of honba-me)
+vyapaar-market-core = { path = "crates/vyapaar-market-core" }
+vyapaar-market-finance = { path = "crates/vyapaar-market-finance" }
+vyapaar-market-normalizer = { path = "crates/vyapaar-market-normalizer" }
+vyapaar-market-indicators = { path = "crates/vyapaar-market-indicators" }
+vyapaar-market-signals = { path = "crates/vyapaar-market-signals" }
+vyapaar-market-store = { path = "crates/vyapaar-market-store" }
+vyapaar-market-feed = { path = "crates/vyapaar-market-feed" }
+vyapaar-market-loaders = { path = "crates/vyapaar-market-loaders" }
+vyapaar-market-zerodha = { path = "crates/vyapaar-market-zerodha" }
+vyapaar-market-upstox = { path = "crates/vyapaar-market-upstox" }
+vyapaar-market-fyers = { path = "crates/vyapaar-market-fyers" }
+vyapaar-market-angelone = { path = "crates/vyapaar-market-angelone" }
+
+# Async runtime & networking (native-only crates: feed, store, loaders, brokers)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
+tokio-stream = "0.1"
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+async-trait = "0.1"
+futures = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+prost = "0.13"
+
+# Serialization & typing
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 thiserror = "1"
 tracing = "0.1"
 rust_decimal = "1"
+rust_decimal_macros = "1"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+
+# Data lakehouse (store)
+arrow = "53"
+parquet = { version = "53", features = ["arrow"] }
+csv = "1"
+flate2 = "1"
