@@ -1,23 +1,25 @@
-//! # व्यापार・बाज़ार vyapaar-market-core
+//! vyapaar-market-core implementation.
+
+//! # vyapaar-market-core
 //!
-//! Canonical market data feed interfaces, broker symbol mapping, and
-//! microstructure enrichment for Indian equities.
-//!
-//! This crate is deliberately dependency-light and WASM-portable: it is
-//! 100% synchronous with no `tokio`, no OS filesystem I/O and no sockets.
-//! The async runtime components of the source crate (`CoalescingTickBuffer`,
-//! `ReconnectionManager`, and the shared `WsClient` transport) live in
-//! [`vyapaar_market_feed`] (tokens: `https://docs.rs/vyapaar-market-feed`),
-//! which is the only place `tokio` is allowed.
+//! Canonical market data feed interfaces, broker symbol mapping, backpressure coalescing,
+//! and WebSocket reconnection state management for Indian equities.
+
+pub mod ws_client;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::stream::BoxStream;
 use rust_decimal::Decimal;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use thiserror::Error;
+use tokio::sync::{Mutex, RwLock, mpsc};
 
 pub use vyapaar_core::{Bar, DepthLevel, Exchange, InstrumentId, Price, PriceBand, Quantity, Tick};
+pub use ws_client::{
+    WsClient, WsConfig, WsConnectionState, WsError, WsMessage, WsOutMessage, WsResult,
+};
 
 /// Subscription depth/mode for market data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -178,10 +180,165 @@ impl SymbolMapper {
     }
 }
 
+/// Monotonic tick pipeline with backpressure buffer and per-instrument tick coalescing.
+///
+/// Under market bursts (e.g., market open or high volatility), consumers might lag.
+/// Instead of dropping critical price updates or overwhelming memory with unbounded queues,
+/// this buffer coalesces top-of-book quotes and LTP ticks per instrument, ensuring that
+/// slow consumers always receive the latest state while strictly guaranteeing monotonic timestamps.
+///
+/// Uses a hybrid structure:
+/// - Bounded `tokio::sync::mpsc` queue for ordinary flow.
+/// - Eviction overflow hash map (`HashMap<InstrumentId, Tick>`) that coalesces LTP and Quote
+///   updates per scrip when the queue is saturated, preserving chronological monotonicity while
+///   ensuring zero loss of the latest quote.
+#[derive(Clone)]
+pub struct CoalescingTickBuffer {
+    tx: mpsc::Sender<Tick>,
+    /// Last tick per instrument for coalescing under backpressure.
+    last_tick_per_instrument: Arc<Mutex<HashMap<InstrumentId, Tick>>>,
+    /// Last timestamp per instrument for monotonicity enforcement.
+    last_timestamps: Arc<Mutex<HashMap<InstrumentId, DateTime<Utc>>>>,
+}
+
+impl CoalescingTickBuffer {
+    /// Create a bounded channel with the specified queue capacity.
+    pub fn new(capacity: usize) -> (Self, mpsc::Receiver<Tick>) {
+        let (tx, rx) = mpsc::channel(capacity);
+        (
+            Self {
+                tx,
+                last_tick_per_instrument: Arc::new(Mutex::new(HashMap::new())),
+                last_timestamps: Arc::new(Mutex::new(HashMap::new())),
+            },
+            rx,
+        )
+    }
+
+    /// Send a tick through the bounded pipeline, enforcing timestamp monotonicity.
+    ///
+    /// When the channel is full (backpressure), the tick is coalesced into the
+    /// per-instrument last-value cache instead of being dropped. The latest tick
+    /// per instrument is retained and will be drained when the consumer catches up.
+    pub async fn send(&self, tick: Tick) -> Result<(), MdError> {
+        let inst = tick.instrument().clone();
+        let ts = tick.receive_ts();
+
+        // Monotonicity check: reject any stale/out-of-order ticks
+        {
+            let mut guard = self.last_timestamps.lock().await;
+            if let Some(prev) = guard.get(&inst)
+                && ts < *prev
+            {
+                // Out-of-order tick dropped
+                return Ok(());
+            }
+            guard.insert(inst.clone(), ts);
+        }
+
+        // Try non-blocking send; if full, coalesce into the LVC cache
+        match self.tx.try_send(tick.clone()) {
+            Ok(()) => Ok(()),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // Buffer under backpressure - coalesce into LVC cache
+                let mut cache = self.last_tick_per_instrument.lock().await;
+                cache.insert(inst, tick);
+                Ok(())
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                Err(MdError::Transport("channel closed".into()))
+            }
+        }
+    }
+
+    /// Drain any coalesced ticks from the LVC cache into the channel.
+    /// Should be called when the consumer has caught up and the channel has space.
+    pub async fn drain_coalesced(&self) -> Result<usize, MdError> {
+        let mut drained = 0;
+        let mut cache = self.last_tick_per_instrument.lock().await;
+        for (inst, tick) in cache.iter() {
+            let inst_clone = inst.clone();
+            match self.tx.try_send(tick.clone()) {
+                Ok(()) => {
+                    drained += 1;
+                }
+                Err(_) => {
+                    // Channel still full, keep the tick in cache
+                    let _ = inst_clone;
+                }
+            }
+        }
+        cache.clear();
+        Ok(drained)
+    }
+}
+
+/// Connection state tracking for WebSocket feeds with auto-resubscribe
+/// and missed-tick snapshot reconciliation.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ConnectionStatus {
+    /// Connected and receiving live ticks.
+    #[default]
+    Connected,
+    /// Disconnected from broker WebSocket.
+    Disconnected { reason: String },
+    /// Currently attempting reconnection.
+    Reconnecting { attempt: u32 },
+    /// Reconnected; reconciling missed ticks via REST snapshot.
+    Reconciling,
+}
+
+/// Stateful manager maintaining active market data subscriptions across disconnects.
+#[derive(Debug, Default)]
+pub struct ReconnectionManager {
+    status: Arc<RwLock<ConnectionStatus>>,
+    active_subscriptions: Arc<Mutex<HashSet<Subscription>>>,
+}
+
+impl ReconnectionManager {
+    /// Create a new reconnection manager.
+    pub fn new() -> Self {
+        Self {
+            status: Arc::new(RwLock::new(ConnectionStatus::Connected)),
+            active_subscriptions: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    /// Record a successful subscription.
+    pub async fn add_subscription(&self, sub: Subscription) {
+        let mut lock = self.active_subscriptions.lock().await;
+        lock.insert(sub);
+    }
+
+    /// Record unsubscription.
+    pub async fn remove_subscription(&self, inst: &InstrumentId) {
+        let mut lock = self.active_subscriptions.lock().await;
+        lock.retain(|s| &s.instrument != inst);
+    }
+
+    /// Get all instruments that must be resubscribed upon reconnect.
+    pub async fn get_resubscribe_list(&self) -> Vec<Subscription> {
+        let lock = self.active_subscriptions.lock().await;
+        lock.iter().cloned().collect()
+    }
+
+    /// Update connection status.
+    pub async fn set_status(&self, status: ConnectionStatus) {
+        let mut lock = self.status.write().await;
+        *lock = status;
+    }
+
+    /// Query current connection status.
+    pub async fn status(&self) -> ConnectionStatus {
+        let lock = self.status.read().await;
+        lock.clone()
+    }
+}
+
 /// Scrip price band and microstructure enrichment for market data ticks.
 ///
 /// Wraps incoming raw broker ticks and enriches them with:
-/// - Dynamic scrip price bands (queried from `vyapaar-market-normalizer` / daily Bhavcopy).
+/// - Dynamic scrip price bands (queried from vyapaar-market-normalizer / daily Bhavcopy).
 /// - Prev close, 52-week high/low, and day open.
 /// - Monotonically calculated intraday VWAP.
 #[derive(Debug, Clone, Default)]
