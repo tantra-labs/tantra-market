@@ -6,5 +6,16 @@ license.workspace = true
 
 [dependencies]
 vyapaar-core = { workspace = true }
+vyapaar-agent-analytics = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
+chrono = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
+csv = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

@@ -40,6 +40,8 @@ vyapaar-market-upstox = { path = "crates/vyapaar-market-upstox" }
 vyapaar-market-fyers = { path = "crates/vyapaar-market-fyers" }
 vyapaar-market-angelone = { path = "crates/vyapaar-market-angelone" }
 vyapaar-market-dhan = { path = "crates/vyapaar-market-dhan" }
+# Performance analytics (report exporters in vyapaar-market-store)
+vyapaar-agent-analytics = { path = "../vyapaar-agent/crates/vyapaar-agent-analytics" }
 
 # Async runtime & networking (native-only crates: feed, store, loaders, brokers)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
