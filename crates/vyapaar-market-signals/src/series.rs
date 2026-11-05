@@ -10,7 +10,7 @@ use vyapaar_market_indicators::{Atr, Cpr, Ema, Indicator, Macd, MacdValue, Rsi, 
 use crate::catalog::Params;
 
 /// The bar columns plus the indicator series the detectors read.
-pub(crate) struct Series {
+pub struct Series {
     /// Open prices, one per bar.
     pub open: Vec<f64>,
     /// High prices.
@@ -119,5 +119,10 @@ impl Series {
     /// Number of bars.
     pub fn len(&self) -> usize {
         self.close.len()
+    }
+
+    /// Whether the series is empty.
+    pub fn is_empty(&self) -> bool {
+        self.close.is_empty()
     }
 }

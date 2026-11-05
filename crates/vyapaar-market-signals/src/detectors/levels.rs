@@ -10,7 +10,7 @@ use crate::series::Series;
 
 /// Prior-day and 52-week level breaks: `break_prior_day_high`, `break_prior_day_low`,
 /// `break_52w_high`, `break_52w_low`.
-pub(crate) struct Levels {
+pub struct Levels {
     pub range_52w: usize,
 }
 

@@ -7,14 +7,14 @@
 //! must produce, matched **by index** — direction, the codes that must be present (extra codes are
 //! allowed), and the count — plus the per-signal invariants (valid, correct ruleset).
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::FromPrimitive;
+use serde_json::Value;
 use vyapaar_core::{Bar, Exchange, InstrumentId, Price, Quantity};
 use vyapaar_market_signals::{
     Params, catalog, compute,
     engine::{Signal, SignalDirection},
 };
-use rust_decimal::Decimal;
-use rust_decimal::prelude::FromPrimitive;
-use serde_json::Value;
 
 const DAY: &str = include_str!("../../../schema/conformance/signals_day.json");
 const SWING: &str = include_str!("../../../schema/conformance/signals_swing.json");

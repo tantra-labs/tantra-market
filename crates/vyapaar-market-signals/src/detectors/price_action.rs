@@ -4,7 +4,7 @@ use crate::detector::{Detector, Firing};
 use crate::series::Series;
 
 /// Candlestick patterns: `bullish_engulfing`, `bearish_engulfing`, `hammer`, `shooting_star`.
-pub(crate) struct Candlestick;
+pub struct Candlestick;
 
 impl Detector for Candlestick {
     fn name(&self) -> &'static str {
@@ -72,7 +72,7 @@ impl Detector for Candlestick {
 
 /// Break of structure: the close clears the highest high (or lowest low) of the prior
 /// `window` bars. Fires `break_of_structure_up` / `break_of_structure_down`.
-pub(crate) struct BreakOfStructure {
+pub struct BreakOfStructure {
     pub window: usize,
 }
 
@@ -126,7 +126,7 @@ impl Detector for BreakOfStructure {
 /// Fractal pivots: bar `i` is a pivot high (low) when its high (low) is the extreme of
 /// `[i-span, i+span]`. Confirmed at bar `i+span`, where the firing is anchored. Fires
 /// `pivot_low` (support) / `pivot_high` (resistance).
-pub(crate) struct FractalPivot {
+pub struct FractalPivot {
     pub span: usize,
 }
 

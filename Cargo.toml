@@ -59,6 +59,7 @@ rust_decimal = "1"
 rust_decimal_macros = "1"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
+uuid = { version = "1", features = ["v4", "serde"] }
 
 # Data lakehouse (store)
 arrow = "53"

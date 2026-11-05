@@ -2,12 +2,14 @@
 
 use vyapaar_market_signals::catalog::{Params, SignalHorizon};
 use vyapaar_market_signals::detector::Detector;
-use vyapaar_market_signals::detectors::price_action::{BreakOfStructure, Candlestick, FractalPivot};
+use vyapaar_market_signals::detectors::price_action::{
+    BreakOfStructure, Candlestick, FractalPivot,
+};
 use vyapaar_market_signals::series::Series;
 mod common;
 use common::bars_ohlcv;
 
-fn codes(firings: &[crate::detector::Firing]) -> Vec<&'static str> {
+fn codes(firings: &[vyapaar_market_signals::detector::Firing]) -> Vec<&'static str> {
     firings.iter().map(|f| f.code).collect()
 }
 
@@ -107,7 +109,7 @@ fn pivots_fire_at_the_confirmation_bar() {
 fn a_pivot_never_uses_future_bars_before_confirmation() {
     // The firing bar is always at least `span` past the pivot bar.
     let params = params();
-    let series = Series::compute(&crate::tests::wavy(), &params);
+    let series = Series::compute(&common::wavy(), &params);
     for firing in (FractalPivot {
         span: params.pivot_span,
     })

@@ -5,7 +5,7 @@ use crate::series::Series;
 
 /// Fires when volume exceeds a multiple of its moving average; the polarity follows the bar's
 /// own direction (close vs open): `rel_volume_spike_up` / `rel_volume_spike_down`.
-pub(crate) struct RelativeVolume {
+pub struct RelativeVolume {
     pub window: usize,
     pub multiple: f64,
 }

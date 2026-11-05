@@ -2,10 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use vyapaar_core::{Bar, InstrumentId, Price};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
+use vyapaar_core::{Bar, InstrumentId, Price};
 
 use crate::catalog::{self, Params, ReasonGroup, ReasonPolarity, Ruleset, SignalHorizon};
 use crate::detectors;
@@ -29,7 +29,9 @@ pub struct Reason {
 }
 
 /// Nanosecond timestamp.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub struct UnixNanos(pub u64);
 
 impl UnixNanos {
@@ -143,12 +145,11 @@ pub fn compute(
             SignalDirection::Sell => last_sell,
             SignalDirection::Hold => None,
         };
-        if ruleset.cooldown_bars > 0 {
-            if let Some(previous) = last {
-                if bar.saturating_sub(previous) <= ruleset.cooldown_bars {
-                    continue;
-                }
-            }
+        if ruleset.cooldown_bars > 0
+            && let Some(previous) = last
+            && bar.saturating_sub(previous) <= ruleset.cooldown_bars
+        {
+            continue;
         }
 
         let close_price = series.close[bar];

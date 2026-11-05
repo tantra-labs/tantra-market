@@ -7,7 +7,7 @@ use vyapaar_market_signals::series::Series;
 mod common;
 use common::{bars_at_days, bars_ohlcv};
 
-fn codes(firings: &[crate::detector::Firing]) -> Vec<&'static str> {
+fn codes(firings: &[vyapaar_market_signals::detector::Firing]) -> Vec<&'static str> {
     firings.iter().map(|f| f.code).collect()
 }
 

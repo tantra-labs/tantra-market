@@ -4,7 +4,7 @@ use crate::detector::{Detector, Firing};
 use crate::series::Series;
 
 /// Fires when RSI leaves an extreme: `rsi_oversold_turn` / `rsi_overbought_turn`.
-pub(crate) struct RsiTurn {
+pub struct RsiTurn {
     pub period: usize,
     pub oversold: f64,
     pub overbought: f64,
@@ -48,7 +48,7 @@ impl Detector for RsiTurn {
 }
 
 /// Fires when the MACD line crosses its signal line: `macd_cross_up` / `macd_cross_down`.
-pub(crate) struct MacdCross;
+pub struct MacdCross;
 
 impl Detector for MacdCross {
     fn name(&self) -> &'static str {

@@ -4,7 +4,7 @@ use crate::detector::{Detector, Firing};
 use crate::series::Series;
 
 /// Fires when the fast EMA crosses the slow EMA: `ema_cross_up` / `ema_cross_down`.
-pub(crate) struct EmaCross {
+pub struct EmaCross {
     pub fast: usize,
     pub slow: usize,
 }

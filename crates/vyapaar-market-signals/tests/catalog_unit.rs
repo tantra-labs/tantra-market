@@ -1,6 +1,8 @@
 //! Tests for the frozen ontology, the detector specs and the rulesets.
 
-use vyapaar_market_signals::catalog::{self, DETECTORS, Params, REASON_CODES, RULESETS, SignalHorizon};
+use vyapaar_market_signals::catalog::{
+    self, DETECTORS, Params, REASON_CODES, RULESETS, SignalHorizon,
+};
 
 #[test]
 fn reason_codes_are_unique_and_looked_up() {

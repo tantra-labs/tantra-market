@@ -1,19 +1,19 @@
 //! The detector families (ADR 0031 §4). Each is a small, stateless scan over [`Series`].
 
-pub(crate) mod cpr_breakout;
-pub(crate) mod levels;
-pub(crate) mod momentum;
-pub(crate) mod orb;
-pub(crate) mod price_action;
-pub(crate) mod trend;
-pub(crate) mod volume;
-pub(crate) mod vwap_cross;
+pub mod cpr_breakout;
+pub mod levels;
+pub mod momentum;
+pub mod orb;
+pub mod price_action;
+pub mod trend;
+pub mod volume;
+pub mod vwap_cross;
 
 use crate::catalog::Params;
 use crate::detector::Detector;
 
 /// Builds the detector instances for these parameters, in catalogue order.
-pub(crate) fn instances(params: &Params) -> Vec<Box<dyn Detector>> {
+pub fn instances(params: &Params) -> Vec<Box<dyn Detector>> {
     vec![
         Box::new(trend::EmaCross {
             fast: params.ema_fast,

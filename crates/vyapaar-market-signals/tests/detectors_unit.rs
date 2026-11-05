@@ -1,7 +1,7 @@
 //! Tests for the individual detectors. Each asserts the semantics on a hand-built series.
 
-use vyapaar_market_indicators::Indicator;
 use rust_decimal::prelude::ToPrimitive;
+use vyapaar_market_indicators::Indicator;
 
 use vyapaar_market_signals::catalog::{Params, SignalHorizon};
 use vyapaar_market_signals::detector::Detector;
@@ -10,7 +10,7 @@ use vyapaar_market_signals::series::Series;
 mod common;
 use common::{bars, bars_ohlcv, wavy};
 
-fn codes(firings: &[crate::detector::Firing]) -> Vec<&'static str> {
+fn codes(firings: &[vyapaar_market_signals::detector::Firing]) -> Vec<&'static str> {
     firings.iter().map(|f| f.code).collect()
 }
 
@@ -59,6 +59,8 @@ fn rsi_turn_fires_out_of_both_extremes() {
     assert!(fired.contains(&"rsi_overbought_turn"), "got {fired:?}");
 }
 
+#[test]
+fn macd_cross_fires_both_ways_on_an_oscillation() {
     let params = Params::for_horizon(SignalHorizon::Swing);
     let series = Series::compute(&wavy(), &params);
     let fired = codes(&momentum::MacdCross.detect(&series));
@@ -104,9 +106,9 @@ fn relative_volume_follows_the_bar_direction() {
 fn every_detector_instance_matches_its_catalogue_spec() {
     let params = Params::default();
     let mut names = std::collections::BTreeSet::new();
-    for detector in crate::detectors::instances(&params) {
+    for detector in vyapaar_market_signals::detectors::instances(&params) {
         assert!(
-            crate::catalog::DETECTORS
+            vyapaar_market_signals::catalog::DETECTORS
                 .iter()
                 .any(|d| d.name == detector.name()),
             "{} is not catalogued",
@@ -140,7 +142,7 @@ fn the_series_matches_the_underlying_indicator() {
     let params = Params::for_horizon(SignalHorizon::Intraday);
     let bars = wavy();
     let series = Series::compute(&bars, &params);
-    let mut ema = vyapaar_indicators::Ema::new(params.ema_fast);
+    let mut ema = vyapaar_market_indicators::Ema::new(params.ema_fast);
     let mut last = None;
     for bar in &bars {
         last = ema.update(bar.close.0.to_f64().unwrap_or(0.0));

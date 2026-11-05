@@ -20,7 +20,7 @@ pub struct Firing {
 /// `detect` is causal: the firing at bar `i` may read only inputs `<= i`, so truncating the
 /// series after `i` cannot change it. Implementors are stateless; the shared [`Series`] is
 /// computed once per evaluation.
-pub(crate) trait Detector {
+pub trait Detector {
     /// The catalogue name (must match a `catalog::DETECTORS` entry).
     fn name(&self) -> &'static str;
 
