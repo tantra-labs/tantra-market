@@ -25,6 +25,19 @@ pub fn hlc(high: f64, low: f64, close: f64) -> Bar {
     }
 }
 
+/// A bar with the given high, low, close and volume.
+pub fn hlcv(high: f64, low: f64, close: f64, volume: f64) -> Bar {
+    Bar {
+        instrument: any_instrument(),
+        open: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
+        high: Price::new(Decimal::from_f64_retain(high).unwrap_or_default()),
+        low: Price::new(Decimal::from_f64_retain(low).unwrap_or_default()),
+        close: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
+        volume: Quantity::new(Decimal::from_f64_retain(volume).unwrap_or_default()),
+        timestamp: Utc::now(),
+    }
+}
+
 /// Feeds every input and returns the outputs in order.
 pub fn feed<I>(ind: &mut I, inputs: &[f64]) -> Vec<Option<I::Output>>
 where
