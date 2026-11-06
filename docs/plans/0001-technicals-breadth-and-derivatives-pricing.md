@@ -1,6 +1,6 @@
 # 0001 — Technical Indicator Breadth, Market Data Scope, and Derivatives Pricing
 
-> **Status**: Proposed — not yet implemented.
+> **Status**: Mostly implemented — Phase 1 (indicator breadth) and Phase 2 (`vyapaar-market-pricing`) done; Phase 3 (wire-mapping verification) done this round; Phase 4 (global market-data scope) remains an explicit open decision.
 > **Target Crates**: `vyapaar-market-indicators` (expand), `vyapaar-market-pricing` (new)
 > **Depends on reading**:
 > - (none external)
@@ -65,6 +65,12 @@ State explicitly: expanding `vyapaar-market` beyond India-only, 5-broker coverag
 
 Check whether `vyapaar-market-angelone`, `vyapaar-market-dhan`, `vyapaar-market-fyers`, `vyapaar-market-upstox`, and `vyapaar-market-zerodha` already use a table-driven data structure (analogous to a `BrokerEnumMap<T>` pattern seen in a different open-source trading terminal product, where it replaced per-broker if-chains across 14 of 16 brokers) to map broker-specific wire enums to canonical enums, or whether they still use ad-hoc if-chains. This is an open question, not a known gap — it has not been verified this session. If ad-hoc if-chains are found, a table-driven refactor would reduce duplication across the 5 broker crates. This should be checked jointly with the equivalent question for `vyapaar-exec`'s broker crates (see `vyapaar-exec/docs/plans/0001-crypto-execution-and-broker-wire-mapping.md`, Phase 1).
 
+#### Verified (jointly with `vyapaar-exec`, Phase 3)
+
+**Finding: no wire-translation code exists on the market data side yet.** `vyapaar-market-zerodha`, `vyapaar-market-angelone`, `vyapaar-market-fyers`, and `vyapaar-market-upstox` are single-line placeholder crates, and `vyapaar-market-dhan` is a stub `MarketDataFeed` with no wire-enum translation. There were therefore no ad-hoc if-chains to refactor and nothing to migrate.
+
+**Forward contract**: when these crates gain real broker tick/instrument translation, they must adopt the same table-driven `BrokerEnumMap<T>` pattern that `vyapaar-exec` now uses (defined in `vyapaar-exec-core::wiring`, mirrored into `vyapaar-market-core` at that point) rather than re-introducing per-crate match chains — the canonical `Exchange`/`Tick`/`Bar` mapping tables will be the place to declare broker tokens. This is the execution-side counterpart to the refactor in `vyapaar-exec/docs/plans/0001` §2.1/Phase 1, verified in lockstep as that doc and this one require.
+
 ---
 
 ## 3. Implementation Phases
@@ -77,6 +83,8 @@ Stand up the new crate with the `PricingModel` trait and a Black-Scholes impleme
 
 ### Phase 3: Broker wire-mapping verification/refactor
 Verify the open question in §2.4 against the 5 broker crates; if ad-hoc if-chains are confirmed, scope and execute a table-driven refactor, coordinated with the parallel verification in `vyapaar-exec`.
+
+**DONE (verification)** — see the verified result in §2.4. The five market broker crates contain no wire translation code yet (four placeholders + one stub feed), so there was nothing to refactor; the table-driven `BrokerEnumMap<T>` pattern is documented as the forward contract for when real market feeds land, with the parallel refactor already applied on the execution side (`vyapaar-exec/0001` Phase 1, commit `2675c07`).
 
 ### Phase 4: Global market-data scope decision
 Explicitly decide whether to pursue global/68-country market-data coverage — decide, do not just default to yes.
