@@ -9,6 +9,7 @@ members = [
   "crates/vyapaar-market-loaders",
   "crates/vyapaar-market-store",
   "crates/vyapaar-market-finance",
+  "crates/vyapaar-market-pricing",
   "crates/vyapaar-market-zerodha",
   "crates/vyapaar-market-upstox",
   "crates/vyapaar-market-fyers",
@@ -29,6 +30,7 @@ vyapaar-core = { path = "../vyapaar-core" }
 # Internal market-data crates (Tier 2A port of honba-me)
 vyapaar-market-core = { path = "crates/vyapaar-market-core" }
 vyapaar-market-finance = { path = "crates/vyapaar-market-finance" }
+vyapaar-market-pricing = { path = "crates/vyapaar-market-pricing" }
 vyapaar-market-normalizer = { path = "crates/vyapaar-market-normalizer" }
 vyapaar-market-indicators = { path = "crates/vyapaar-market-indicators" }
 vyapaar-market-signals = { path = "crates/vyapaar-market-signals" }
