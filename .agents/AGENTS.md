@@ -22,8 +22,8 @@
 * **Interface-First**: Feeds implement `MarketDataFeed` trait; indicators implement streaming calculation traits.
 * **Zero Floats Policy**: Price and volume use `Decimal`.
 * **TDD & Parallel Test Directory Rule (MANDATORY)**:
-  - All tests must live in `tests/` parallel to `src/`.
-  - **STRICTLY FORBIDDEN**: In-file `#[test]` inside `src/`.
+  - All tests must live in `tests/` parallel to `src/`, or in a `src/tests/` module directory.
+  - **STRICTLY FORBIDDEN**: In-file `#[test]` inside production `src/` files.
   - Golden indicator verification tests against StockSharp reference vectors.
 
 ---
