@@ -1,12 +1,11 @@
-# `vyapaar-market` — Subagent Migration & DDD Refactoring Guide
+# `vyapaar-market` — Historical Migration Map (honba-me → vyapaar-market)
 
 > **Tier**: Tier 2A (Depends on `vyapaar-core`)
 > **Source**: `/home/pmallapp/Devel/Finance/honba-workspace/honba-me`
 > **Target**: `/home/pmallapp/Devel/Finance/vyapaar-labs/vyapaar-market`
+> **Status**: Migration complete.
 
----
-
-## 1. Sub-Crate Mapping Table
+## Sub-Crate Mapping Table
 
 | Source Crate (`honba-me/crates/`) | Target Crate (`vyapaar-market/crates/`) | Notes & DDD Refactoring |
 | :--- | :--- | :--- |
@@ -22,9 +21,8 @@
 | `honba-me-fyers` | `vyapaar-market-fyers` | Port Fyers v3 binary data socket adapter. |
 | `honba-me-angelone` | `vyapaar-market-angelone` | Port Angel One SmartAPI 2.0 WebSocket adapter. |
 
----
+## Step-by-Step Migration Instructions
 
-## 2. Step-by-Step Migration Instructions
 1. Update `vyapaar-market/Cargo.toml` `[workspace.dependencies]` to include all external crates from `honba-me/Cargo.toml` (`tokio`, `tokio-stream`, `tokio-tungstenite`, `flate2`, `arrow`, `parquet`, `rust_decimal`, `chrono`, `async-trait`, `futures`, `proptest`) plus internal workspace crates (`vyapaar-market-core`, `vyapaar-market-finance`, etc.).
 2. Migrate in bottom-up crate order inside `vyapaar-market`:
    - Step 1: `vyapaar-market-core`, `vyapaar-market-finance`, `vyapaar-market-normalizer`
@@ -34,7 +32,8 @@
 3. Replace all `honba_core` → `vyapaar_core` and `honba_me_*` → `vyapaar_market_*` imports.
 4. Ensure zero `#[cfg(test)]` blocks remain in `crates/*/src/`.
 
-## 3. Verification Commands
+## Verification Commands
+
 ```bash
 cd /home/pmallapp/Devel/Finance/vyapaar-labs/vyapaar-market
 grep -rn "#\[cfg(test)\]" crates/*/src/ && exit 1 || true
