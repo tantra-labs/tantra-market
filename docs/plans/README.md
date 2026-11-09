@@ -9,9 +9,10 @@ Per workspace rule `.agents/rules/gap-tracking.md`:
 
 | # | Title | Target Scope | Status |
 |---|-------|--------------|--------|
-| [0001](0001-technicals-breadth-and-derivatives-pricing.md) | Technical Indicator Breadth, Market Data Scope, and Derivatives Pricing | `vyapaar-market-indicators`, `vyapaar-market-pricing` | Phases 1–3 implemented (`ddb5c3f`, `602a710`); Phase 4 open |
+| — | — | — | (none) |
 
 ## Implemented Plans
 
 | # | Title | Target Scope | Implemented In |
 |---|-------|--------------|----------------|
+| 0001 | Technical Indicator Breadth, Market Data Scope, and Derivatives Pricing | `vyapaar-market-indicators`, `vyapaar-market-pricing` | Phases 1–3 implemented (`ddb5c3f`, `1983512`, `602a710`); Phase 4 decided — **decline global/68-country expansion by default; Vyapaar market data remains India-only (5 brokers)**. Plan document removed from active plans (cleanup commit). |
