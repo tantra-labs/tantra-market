@@ -28,7 +28,7 @@ either the options chain or index/stock futures.
 
 ## Why
 
-`vyapaar-agent/docs/plans/0008-institutional-smart-money-detection-suite.md` scopes an
+`vyapaar-agent/docs/plans/0010-institutional-smart-money-detection-suite.md` scopes an
 `oi_buildup` chat tool and uses OI-buildup direction as one leg of its composite smart-money
 signal; both need this repo to be the actual data source, per this workspace's gap-tracking
 rule (`.agents/rules/gap-tracking.md` §5): `vyapaar-market` owns instrument reference data and
@@ -57,7 +57,7 @@ only options.
    table above — this classification logic itself can live here or be left to the consumer
    (`vyapaar-strategies`); decide the boundary when implementing, rather than assuming it here.
 5. Expose the reader to Rust consumers so `vyapaar-agent-chat-tools`'s planned `oi_buildup` tool
-   (`vyapaar-agent/docs/plans/0008-institutional-smart-money-detection-suite.md` Phase 3) has a
+   (`vyapaar-agent/docs/plans/0010-institutional-smart-money-detection-suite.md` Phase 3) has a
    real read instead of a `PortError::unavailable` stand-in.
 
 No code should be written against this gap document until the snapshot-store design (crate
