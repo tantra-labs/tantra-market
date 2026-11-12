@@ -28,3 +28,4 @@ cause lives here.
 | # | Title | Area |
 |---|-------|------|
 | [0001](0001-options-chain-reader.md) | Options-chain enumeration/reader — contract-reference + Greeks building blocks exist, but nothing enumerates/serves a chain (blocks chat `options_chain` tool) | `vyapaar-market-store` / `vyapaar-market-pricing` |
+| [0002](0002-open-interest-history-and-buildup-tracking.md) | Open-interest time-series history & buildup classification — no persisted OI history for options or futures (blocks chat `oi_buildup` tool) | `vyapaar-market-store` |
