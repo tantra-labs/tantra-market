@@ -1,8 +1,8 @@
 # `vyapaar-market` — Historical Migration Map (honba-me → vyapaar-market)
 
 > **Tier**: Tier 2A (Depends on `vyapaar-core`)
-> **Source**: `/home/pmallapp/Devel/Finance/honba-workspace/honba-me`
-> **Target**: `/home/pmallapp/Devel/Finance/vyapaar-labs/vyapaar-market`
+> **Source**: `honba-workspace/honba-me`
+> **Target**: `vyapaar-market`
 > **Status**: Migration complete.
 
 ## Sub-Crate Mapping Table
@@ -35,7 +35,7 @@
 ## Verification Commands
 
 ```bash
-cd /home/pmallapp/Devel/Finance/vyapaar-labs/vyapaar-market
+# Run from the repository root
 grep -rn "#\[cfg(test)\]" crates/*/src/ && exit 1 || true
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
