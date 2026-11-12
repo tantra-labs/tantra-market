@@ -1,20 +1,20 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/vyapaar-market-core",
-  "crates/vyapaar-market-feed",
-  "crates/vyapaar-market-normalizer",
-  "crates/vyapaar-market-indicators",
-  "crates/vyapaar-market-signals",
-  "crates/vyapaar-market-loaders",
-  "crates/vyapaar-market-store",
-  "crates/vyapaar-market-finance",
-  "crates/vyapaar-market-pricing",
-  "crates/vyapaar-market-zerodha",
-  "crates/vyapaar-market-upstox",
-  "crates/vyapaar-market-fyers",
-  "crates/vyapaar-market-angelone",
-  "crates/vyapaar-market-dhan",
+  "crates/tantra-market-core",
+  "crates/tantra-market-feed",
+  "crates/tantra-market-normalizer",
+  "crates/tantra-market-indicators",
+  "crates/tantra-market-signals",
+  "crates/tantra-market-loaders",
+  "crates/tantra-market-store",
+  "crates/tantra-market-finance",
+  "crates/tantra-market-pricing",
+  "crates/tantra-market-zerodha",
+  "crates/tantra-market-upstox",
+  "crates/tantra-market-fyers",
+  "crates/tantra-market-angelone",
+  "crates/tantra-market-dhan",
 ]
 
 [workspace.package]
@@ -22,28 +22,28 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0"
-repository = "https://github.com/vyapaar-labs/vyapaar-market"
+repository = "https://github.com/tantra-labs/tantra-market"
 
 [workspace.dependencies]
 # Internal cross-repo kernel
-vyapaar-core = { path = "../vyapaar-core" }
+tantra-core = { path = "../tantra-core" }
 # Internal market-data crates (Tier 2A port of honba-me)
-vyapaar-market-core = { path = "crates/vyapaar-market-core" }
-vyapaar-market-finance = { path = "crates/vyapaar-market-finance" }
-vyapaar-market-pricing = { path = "crates/vyapaar-market-pricing" }
-vyapaar-market-normalizer = { path = "crates/vyapaar-market-normalizer" }
-vyapaar-market-indicators = { path = "crates/vyapaar-market-indicators" }
-vyapaar-market-signals = { path = "crates/vyapaar-market-signals" }
-vyapaar-market-store = { path = "crates/vyapaar-market-store" }
-vyapaar-market-feed = { path = "crates/vyapaar-market-feed" }
-vyapaar-market-loaders = { path = "crates/vyapaar-market-loaders" }
-vyapaar-market-zerodha = { path = "crates/vyapaar-market-zerodha" }
-vyapaar-market-upstox = { path = "crates/vyapaar-market-upstox" }
-vyapaar-market-fyers = { path = "crates/vyapaar-market-fyers" }
-vyapaar-market-angelone = { path = "crates/vyapaar-market-angelone" }
-vyapaar-market-dhan = { path = "crates/vyapaar-market-dhan" }
-# Performance analytics (report exporters in vyapaar-market-store)
-vyapaar-agent-analytics = { path = "../vyapaar-agent/crates/vyapaar-agent-analytics" }
+tantra-market-core = { path = "crates/tantra-market-core" }
+tantra-market-finance = { path = "crates/tantra-market-finance" }
+tantra-market-pricing = { path = "crates/tantra-market-pricing" }
+tantra-market-normalizer = { path = "crates/tantra-market-normalizer" }
+tantra-market-indicators = { path = "crates/tantra-market-indicators" }
+tantra-market-signals = { path = "crates/tantra-market-signals" }
+tantra-market-store = { path = "crates/tantra-market-store" }
+tantra-market-feed = { path = "crates/tantra-market-feed" }
+tantra-market-loaders = { path = "crates/tantra-market-loaders" }
+tantra-market-zerodha = { path = "crates/tantra-market-zerodha" }
+tantra-market-upstox = { path = "crates/tantra-market-upstox" }
+tantra-market-fyers = { path = "crates/tantra-market-fyers" }
+tantra-market-angelone = { path = "crates/tantra-market-angelone" }
+tantra-market-dhan = { path = "crates/tantra-market-dhan" }
+# Performance analytics (report exporters in tantra-market-store)
+tantra-agent-analytics = { path = "../tantra-agent/crates/tantra-agent-analytics" }
 
 # Async runtime & networking (native-only crates: feed, store, loaders, brokers)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }

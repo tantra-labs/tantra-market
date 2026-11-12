@@ -1,0 +1,10 @@
+[package]
+name = "tantra-market-feed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tantra-core = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }

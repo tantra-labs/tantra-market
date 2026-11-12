@@ -1,4 +1,4 @@
-# `vyapaar-market` Agent Guidelines & Architecture Invariants
+# `tantra-market` Agent Guidelines & Architecture Invariants
 
 **Subsystem**: Eye (Market Data & Indicators)
 **Language**: Rust
@@ -7,9 +7,9 @@
 ---
 
 ## 1. Role & Architectural Hints
-* `vyapaar-market` ingests, normalizes, and calculates real-time market data:
+* `tantra-market` ingests, normalizes, and calculates real-time market data:
   1. **Broker Feeds**: High-throughput binary WebSockets for Zerodha Kite, Upstox, Fyers, Angel One, and Dhan.
-  2. **Anti-Corruption Layer**: Maps heterogeneous broker tokens and tick formats to canonical `vyapaar_core::Tick` and `vyapaar_core::Bar`.
+  2. **Anti-Corruption Layer**: Maps heterogeneous broker tokens and tick formats to canonical `tantra_core::Tick` and `tantra_core::Bar`.
   3. **Tick Coalescing & Backpressure**: Bounded `tokio::sync::mpsc` channels with non-blocking coalescing to prevent buffer bloat.
   4. **100+ StockSharp Indicators**: Streaming calculation of moving averages, oscillators, volatility bands, and volume profiles with zero heap allocations in hot paths.
 * **Idea Inheritance**:

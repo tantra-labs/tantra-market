@@ -1,6 +1,6 @@
-# `vyapaar-market-signals` — Explainable Signal Detectors Reference
+# `tantra-market-signals` — Explainable Signal Detectors Reference
 
-Documents `crates/vyapaar-market-signals/src/` (ADR 0031): a causal,
+Documents `crates/tantra-market-signals/src/` (ADR 0031): a causal,
 confluence-scored signal engine over a closed bar series. Pure — no clock, no
 I/O, no lookahead.
 
@@ -11,7 +11,7 @@ I/O, no lookahead.
 | `catalog.rs` | Frozen reason ontology: `ReasonGroup`, `ReasonPolarity`, `SignalHorizon`, `ReasonCode`, `REASON_CODES` (30 codes), `DETECTORS` (13 specs), `RULESETS` (2 horizons), `Params` |
 | `detector.rs` | `Detector` trait + `Firing` (one firing at one bar, with cited numbers) |
 | `detectors/` | 11 detector families: `EmaCross`, `RsiTurn`, `MacdCross`, `RelativeVolume`, `Candlestick`, `BreakOfStructure`, `FractalPivot`, `Levels`, `VwapCross`, `CprBreakout`, `OrbBreakout` |
-| `series.rs` | `Series` — indicator columns (`ema_fast/slow`, `rsi`, `macd`, `vol_sma`, `vwap`, `cpr`, `atr`) computed once per evaluation from `vyapaar-market-indicators` |
+| `series.rs` | `Series` — indicator columns (`ema_fast/slow`, `rsi`, `macd`, `vol_sma`, `vwap`, `cpr`, `atr`) computed once per evaluation from `tantra-market-indicators` |
 | `engine.rs` | `Signal`, `Reason`, `SignalDirection`, `UnixNanos`, `compute`, `signals_for_horizon`, trade setup (ATR stop + 1R/2R targets) |
 
 ## The Frozen Reason Catalogue
@@ -57,10 +57,10 @@ truncating future bars never changes an earlier signal.
 ## Zero Floats Policy
 
 Signal scoring is `f64` internally (weights are floats), but every price that
-escapes the crate — `stop_loss`, `targets` — is an exact `vyapaar_core::Price`
+escapes the crate — `stop_loss`, `targets` — is an exact `tantra_core::Price`
 (`Decimal`), converted at the boundary.
 
 ## Related
 
 * `code-indicators.md` — the indicator library that powers `Series`.
-* `vyapaar-core` — `Bar`, `InstrumentId`, `Price`.
+* `tantra-core` — `Bar`, `InstrumentId`, `Price`.

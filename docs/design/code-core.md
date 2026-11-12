@@ -1,6 +1,6 @@
-# `vyapaar-market-core` — Feed Ports & Shared Transport Reference
+# `tantra-market-core` — Feed Ports & Shared Transport Reference
 
-Documents `crates/vyapaar-market-core/src/` (`lib.rs` + `ws_client.rs`): the
+Documents `crates/tantra-market-core/src/` (`lib.rs` + `ws_client.rs`): the
 canonical market-data feed interface, symbol mapping, tick coalescing,
 reconnection state, quote enrichment, and the shared WebSocket transport that
 broker adapters build on.
@@ -74,11 +74,11 @@ Defaults: `max_reconnect_delay_secs = 60`, `initial_reconnect_delay_secs = 1`,
 
 ## Zero Floats Policy
 
-All prices/quantities crossing these ports are canonical `vyapaar_core`
+All prices/quantities crossing these ports are canonical `tantra_core`
 `Price`/`Quantity` (`rust_decimal`) — no floats.
 
 ## Related
 
 * `code-brokers.md` — broker adapters implement `MarketDataFeed` on top of `WsClient`.
 * `code-store.md` — `TickRecorder` subscribes to a broadcast stream and flushes to the lakehouse.
-* `vyapaar-core` — canonical `Tick`, `Bar`, `InstrumentId`.
+* `tantra-core` — canonical `Tick`, `Bar`, `InstrumentId`.

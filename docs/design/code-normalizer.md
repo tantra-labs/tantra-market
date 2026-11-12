@@ -1,8 +1,8 @@
-# `vyapaar-market-normalizer` — Instrument Master & Corporate Actions Reference
+# `tantra-market-normalizer` — Instrument Master & Corporate Actions Reference
 
-Documents `crates/vyapaar-market-normalizer/src/lib.rs`: in-memory instrument
+Documents `crates/tantra-market-normalizer/src/lib.rs`: in-memory instrument
 master and corporate-actions engine. Pure, WASM-portable (file loading lives
-in `vyapaar-market-loaders`/callers).
+in `tantra-market-loaders`/callers).
 
 ## `InstrumentMaster`
 
@@ -22,7 +22,7 @@ An in-memory multi-key lookup index over `InstrumentMasterEntry`
 
 All loaders accept raw bytes so callers can feed downloaded or memory-mapped
 master files without touching the OS filesystem (the crate stays
-WASM-portable; file/network loading lives in `vyapaar-market-loaders`).
+WASM-portable; file/network loading lives in `tantra-market-loaders`).
 
 ## `CorporateActions`
 
@@ -36,10 +36,10 @@ Per-ISIN registry of corporate-action events, sorted by effective date:
 
 ## Zero Floats Policy
 
-Lot sizes are `u32`; tick sizes are exact `vyapaar_core::Price`;
+Lot sizes are `u32`; tick sizes are exact `tantra_core::Price`;
 `adjust_price` returns exact `Price`. No floats in the public API.
 
 ## Related
 
-* `vyapaar-market-loaders` — file/network loading (currently an empty stub; the master loaders above are called with raw bytes).
-* `vyapaar-core` — `Exchange`, `InstrumentId`, `Price`, `Quantity`.
+* `tantra-market-loaders` — file/network loading (currently an empty stub; the master loaders above are called with raw bytes).
+* `tantra-core` — `Exchange`, `InstrumentId`, `Price`, `Quantity`.

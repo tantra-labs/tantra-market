@@ -1,6 +1,6 @@
-# `vyapaar-market-pricing` — Derivatives Pricing Reference
+# `tantra-market-pricing` — Derivatives Pricing Reference
 
-Documents `crates/vyapaar-market-pricing/src/lib.rs`: the `PricingModel` trait
+Documents `crates/tantra-market-pricing/src/lib.rs`: the `PricingModel` trait
 and its `BlackScholesModel` implementation with all five Greeks as exact
 `Decimal` values at the API boundary.
 
@@ -20,7 +20,7 @@ pub trait PricingModel {
 Everything a pricing model needs about one option: `spot`, `strike`,
 `time_to_expiry` (years), `risk_free_rate`, `dividend_yield`, `volatility`,
 `option_type`. `PriceParams::from_fno_contract` builds these straight from a
-parsed `vyapaar_market_finance::FnoContract` (strike/expiry/call-put) + spot
+parsed `tantra_market_finance::FnoContract` (strike/expiry/call-put) + spot
 + as-of date. `validate` enforces strictly-positive spot/strike/expiry/vol.
 
 ## `Greeks`
@@ -47,4 +47,4 @@ Errors: `PricingError::{InvalidArgument, NotConverged, NotAnOption}`.
 ## Related
 
 * `code-finance.md` — the `FnoContract` grammar that feeds `from_fno_contract`.
-* `vyapaar-core` — `OptionType`, `Price`.
+* `tantra-core` — `OptionType`, `Price`.

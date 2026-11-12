@@ -1,6 +1,6 @@
-# `vyapaar-market-store` — Lakehouse, Dataset & Readers Reference
+# `tantra-market-store` — Lakehouse, Dataset & Readers Reference
 
-Documents `crates/vyapaar-market-store/src/`: the Parquet lakehouse, the
+Documents `crates/tantra-market-store/src/`: the Parquet lakehouse, the
 immutable columnar dataset used by backtests, and the readers/exporters that
 serve the async port traits.
 
@@ -17,9 +17,9 @@ serve the async port traits.
 | `bhavcopy.rs` | `BhavcopyConnector` — `MarketDataConnector` replaying an NSE bhavcopy CSV as 1-day bars |
 | `recorder.rs` | `TickRecorder` — async daemon flushing a tick stream to the lakehouse |
 | `ticks.rs` | `InMemoryTickReader` — quote/trade ticks held in a `Vec` |
-| `export/` | `ReportWriter` trait + `CsvReportWriter`, `JsonReportWriter`, `MarkdownReportWriter` (CSV/JSON/Markdown) over `vyapaar_agent_analytics::PerformanceReport` |
+| `export/` | `ReportWriter` trait + `CsvReportWriter`, `JsonReportWriter`, `MarkdownReportWriter` (CSV/JSON/Markdown) over `tantra_agent_analytics::PerformanceReport` |
 | `import/` | `ParquetBarSource` — parquet bar reader (`ts`, OHLCV float64) into `ColumnarSlice`/`Bar`s |
-| `canonical.rs` | Bridge from legacy `f64` wire types to canonical `vyapaar_core` `Tick`/`Bar`; `migrate_tick_store`/`migrate_bars` |
+| `canonical.rs` | Bridge from legacy `f64` wire types to canonical `tantra_core` `Tick`/`Bar`; `migrate_tick_store`/`migrate_bars` |
 | `wire.rs` | Legacy `f64` wire types: `Bar`, `QuoteTick`, `TradeTick`, `BarSpecification`, `BarType`, `UnixNanos`, `PriceType`, `BarAggregation`, `AggressorSide` |
 | `ports.rs` | Async port traits: `BarReader`, `TickReader`, `QuoteReader`, `DepthReader`, `InstrumentMaster`, `MarketDataConnector` + `PortError` |
 
@@ -40,7 +40,7 @@ serve the async port traits.
   sibling and renamed, so readers never see a half-written file.
 * Depth ladders and price bands are JSON text columns.
 * `read_ticks_range`/`read_bars_range` are range reads ascending by exchange
-  time; `Lakehouse` implements `vyapaar_core::TickReader`/`BarReader`.
+  time; `Lakehouse` implements `tantra_core::TickReader`/`BarReader`.
 * Compression: `LakehouseCompression::{Snappy, Zstd (default), None}`.
 
 ## Dataset (`dataset.rs`)
@@ -88,7 +88,7 @@ across thread counts.
 
 ## Exporters (`export/`)
 
-`ReportWriter` serializes a `vyapaar_agent_analytics::PerformanceReport`:
+`ReportWriter` serializes a `tantra_agent_analytics::PerformanceReport`:
 
 * `CsvReportWriter` — two-column `metric,value` CSV.
 * `JsonReportWriter` — compact or pretty JSON.
@@ -115,6 +115,6 @@ canonical types by `canonical.rs` so downstream crates never see floats.
 
 ## Related
 
-* `code-core.md` — `TickRecorder` attaches to a `vyapaar-market-core` broadcast stream.
-* `vyapaar-agent-analytics` — `PerformanceReport` (cross-repo dependency).
-* `vyapaar-core` — `Tick`, `Bar`, `TickReader`/`BarReader` ports.
+* `code-core.md` — `TickRecorder` attaches to a `tantra-market-core` broadcast stream.
+* `tantra-agent-analytics` — `PerformanceReport` (cross-repo dependency).
+* `tantra-core` — `Tick`, `Bar`, `TickReader`/`BarReader` ports.

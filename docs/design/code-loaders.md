@@ -1,7 +1,7 @@
-# `vyapaar-market-loaders` — Historical Loaders Facade (Stub)
+# `tantra-market-loaders` — Historical Loaders Facade (Stub)
 
-Documents `crates/vyapaar-market-loaders/`: an empty scaffolded crate.
-`src/lib.rs` is a single doc-comment line (`//! vyapaar-market-loaders implementation.`).
+Documents `crates/tantra-market-loaders/`: an empty scaffolded crate.
+`src/lib.rs` is a single doc-comment line (`//! tantra-market-loaders implementation.`).
 
 ## What it was meant to be
 
@@ -10,14 +10,14 @@ loaders. That responsibility was re-homed:
 
 * **Parquet/history loading** (`ParquetBarSource`, `DatasetReader`,
   `CatalogInstrumentMaster`, lakehouse readers) lives in
-  `vyapaar-market-store`.
-* **Instrument-master loaders** in `vyapaar-market-normalizer` accept raw
+  `tantra-market-store`.
+* **Instrument-master loaders** in `tantra-market-normalizer` accept raw
   bytes directly (`load_zerodha_csv`, `load_upstox_json`, `load_nse_equity_csv`),
   so no filesystem-loading crate is needed on WASM targets.
 
 ## Status
 
-Empty stub. Nothing in the workspace imports `vyapaar_market_loaders`.
+Empty stub. Nothing in the workspace imports `tantra_market_loaders`.
 Tracked by root gap `docs/gaps/0002-market-feed-loaders-stubs.md` and the
 per-repo gap `../gaps/0004-feed-loaders-stubs.md` — removal is the likely
 resolution.

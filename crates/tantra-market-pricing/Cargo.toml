@@ -1,0 +1,17 @@
+[package]
+name = "tantra-market-pricing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Derivatives pricing: PricingModel trait and a Black-Scholes Greeks implementation (Decimal at the API boundary)"
+
+[dependencies]
+tantra-core = { workspace = true }
+tantra-market-finance = { workspace = true }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

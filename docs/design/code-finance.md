@@ -1,6 +1,6 @@
-# `vyapaar-market-finance` — Market Contracts & India Pack Reference
+# `tantra-market-finance` — Market Contracts & India Pack Reference
 
-Documents `crates/vyapaar-market-finance/src/`: generic market contracts plus
+Documents `crates/tantra-market-finance/src/`: generic market contracts plus
 the pluggable `india` market pack and the `null` offline test pack.
 
 ## Module Map
@@ -33,7 +33,7 @@ Types: `FnoContract::Future`/`Option`, `FnoExpiry::Monthly`/`Weekly`,
 `OptionType::Call`/`Put`. Weekly month codes are `1..9` (Jan–Sep), `O` (Oct),
 `N` (Nov), `D` (Dec). `default_fno_lot_size` returns the standard index lots
 (NIFTY 25, BANKNIFTY 15, FINNIFTY 25, MIDCPNIFTY 50). `PriceParams::from_fno_contract`
-in `vyapaar-market-pricing` consumes this grammar.
+in `tantra-market-pricing` consumes this grammar.
 
 ## Costs
 
@@ -54,7 +54,7 @@ hardcoded in the crate — every value is injected.
 ## Zero Floats Policy
 
 `rules.rs` and everything crossing to domain crates uses exact
-`vyapaar_core::Price`/`Quantity`. The `india/costs` charge amounts are `f64`
+`tantra_core::Price`/`Quantity`. The `india/costs` charge amounts are `f64`
 fractions of notional (statutory rate tables), matching the Python reference
 implementation; they are always rounded to exact `Decimal` before being
 booked by a consumer.
@@ -62,4 +62,4 @@ booked by a consumer.
 ## Related
 
 * `code-pricing.md` — `PriceParams::from_fno_contract` turns a parsed `FnoContract` into pricing input.
-* `vyapaar-core` — `Price`, `Quantity`, `InstrumentId`.
+* `tantra-core` — `Price`, `Quantity`, `InstrumentId`.

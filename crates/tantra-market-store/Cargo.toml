@@ -1,0 +1,21 @@
+[package]
+name = "tantra-market-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tantra-core = { workspace = true }
+tantra-agent-analytics = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+arrow = { workspace = true }
+parquet = { workspace = true }
+csv = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

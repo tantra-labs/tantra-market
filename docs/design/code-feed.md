@@ -1,7 +1,7 @@
-# `vyapaar-market-feed` — Live Feed Facade (Stub)
+# `tantra-market-feed` — Live Feed Facade (Stub)
 
-Documents `crates/vyapaar-market-feed/`: an empty scaffolded crate. `src/lib.rs`
-is a single doc-comment line (`//! vyapaar-market-feed implementation.`).
+Documents `crates/tantra-market-feed/`: an empty scaffolded crate. `src/lib.rs`
+is a single doc-comment line (`//! tantra-market-feed implementation.`).
 
 ## What it was meant to be
 
@@ -10,12 +10,12 @@ crate. That responsibility was later re-homed:
 
 * **Feed ports** (`MarketDataFeed`, `CoalescingTickBuffer`,
   `ReconnectionManager`, `WsClient`, `Subscription`, `SymbolMapper`) live in
-  `vyapaar-market-core`.
-* **Lakehouse / bhavcopy / recorder** live in `vyapaar-market-store`.
+  `tantra-market-core`.
+* **Lakehouse / bhavcopy / recorder** live in `tantra-market-store`.
 
 ## Status
 
-Empty stub. Nothing in the workspace imports `vyapaar_market_feed`.
+Empty stub. Nothing in the workspace imports `tantra_market_feed`.
 Tracked by root gap `docs/gaps/0002-market-feed-loaders-stubs.md` and the
 per-repo gap `../gaps/0004-feed-loaders-stubs.md` — removal is the likely
 resolution (the crate's name implies ownership that actually lives in `core`

@@ -1,6 +1,6 @@
-# `vyapaar-market-indicators` — Streaming Indicator Catalog Reference
+# `tantra-market-indicators` — Streaming Indicator Catalog Reference
 
-Documents `crates/vyapaar-market-indicators/src/`: the shared `Indicator`
+Documents `crates/tantra-market-indicators/src/`: the shared `Indicator`
 trait and its 32 implemented indicator families, plus the screener and render
 contracts. Pure compute — no `tokio`, no I/O, WASM-portable.
 
@@ -42,7 +42,7 @@ most indicators consume — the documented indicator-layer float boundary
 Predicate evaluation over a bar series: `FilterOp` (Gt/Gte/Lt/Lte/Eq/Ne/
 Between/In/NotIn/Like/Has/CrossesAbove/CrossesBelow), `MetricRef` +
 `MetricPeriod`, `ScreenerFilterPredicate`, plus a `Screener`-style evaluator
-built on `Sma`/`Rsi` and canonical `vyapaar_core::Bar`.
+built on `Sma`/`Rsi` and canonical `tantra_core::Bar`.
 
 ## Render Contract (`render.rs`)
 
@@ -61,4 +61,4 @@ empty scaffolded modules (single doc comment, no code).
 ## Related
 
 * `code-signals.md` — the signals engine builds its `Series` from these indicators.
-* `vyapaar-core` — `Bar`, `Price`, `Quantity`.
+* `tantra-core` — `Bar`, `Price`, `Quantity`.

@@ -1,0 +1,14 @@
+[package]
+name = "tantra-market-signals"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tantra-core = { workspace = true }
+tantra-market-indicators = { workspace = true }
+rust_decimal = { workspace = true }
+chrono = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

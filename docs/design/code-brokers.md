@@ -1,21 +1,21 @@
-# `vyapaar-market` — Broker WebSocket ACL Crates Reference
+# `tantra-market` — Broker WebSocket ACL Crates Reference
 
-Documents the five broker crates: `vyapaar-market-{zerodha,upstox,fyers,angelone,dhan}`.
+Documents the five broker crates: `tantra-market-{zerodha,upstox,fyers,angelone,dhan}`.
 Four are empty scaffolds; `dhan` has a skeletal feed adapter. This is the
 Anti-Corruption Layer that is supposed to translate broker binary frames into
-canonical `vyapaar_core::Tick`.
+canonical `tantra_core::Tick`.
 
 ## Status
 
 | Crate | Broker | Status |
 |-------|--------|--------|
-| `vyapaar-market-zerodha` | Zerodha Kite (binary WebSocket) | **Empty stub** (`src/lib.rs` = one doc-comment line) |
-| `vyapaar-market-upstox` | Upstox v2 (binary/Protobuf feed) | **Empty stub** |
-| `vyapaar-market-fyers` | Fyers v3 (binary data socket) | **Empty stub** |
-| `vyapaar-market-angelone` | Angel One SmartAPI 2.0 (WebSocket) | **Empty stub** |
-| `vyapaar-market-dhan` | Dhan (WebSocket feed) | **Skeleton** — `DhanFeed` struct implementing `MarketDataFeed`; `subscribe` returns an empty stream (no Dhan wire protocol) |
+| `tantra-market-zerodha` | Zerodha Kite (binary WebSocket) | **Empty stub** (`src/lib.rs` = one doc-comment line) |
+| `tantra-market-upstox` | Upstox v2 (binary/Protobuf feed) | **Empty stub** |
+| `tantra-market-fyers` | Fyers v3 (binary data socket) | **Empty stub** |
+| `tantra-market-angelone` | Angel One SmartAPI 2.0 (WebSocket) | **Empty stub** |
+| `tantra-market-dhan` | Dhan (WebSocket feed) | **Skeleton** — `DhanFeed` struct implementing `MarketDataFeed`; `subscribe` returns an empty stream (no Dhan wire protocol) |
 
-All five are registered in `vyapaar-market/Cargo.toml` `[workspace] members`
+All five are registered in `tantra-market/Cargo.toml` `[workspace] members`
 and `[workspace.dependencies]`, but nothing in any workspace imports them.
 
 ## The Dhan Skeleton
@@ -40,7 +40,7 @@ implementation:
 * `unsubscribe`/`fetch_snapshot` → no-op / empty,
 * `feed_health()` → `connected: false` with zero counters.
 
-It exercises the `vyapaar-market-core` plumbing (`WsClient`, `SymbolMapper`,
+It exercises the `tantra-market-core` plumbing (`WsClient`, `SymbolMapper`,
 `ReconnectionManager`) but decodes no Dhan frames.
 
 ## Why they exist as stubs
@@ -55,13 +55,13 @@ is actually implemented.
 
 ## The intended adapter shape
 
-When implemented, each broker crate must build on `vyapaar-market-core`:
+When implemented, each broker crate must build on `tantra-market-core`:
 
 * `WsClient` for the binary transport (heartbeat + reconnect),
 * `SymbolMapper` for broker token ↔ canonical `InstrumentId`,
 * `CoalescingTickBuffer` for backpressure,
 * `ReconnectionManager` for auto-resubscribe + REST snapshot reconciliation,
-* and must translate frames **immediately** into canonical `vyapaar_core::Tick`.
+* and must translate frames **immediately** into canonical `tantra_core::Tick`.
 
 ## Related
 

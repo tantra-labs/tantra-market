@@ -1,4 +1,4 @@
-# व्यापार・行情 vyapaar-market
+# व्यापार・行情 tantra-market
 
 > *Market Data: Multi-broker binary WebSockets, tick coalescing, 100+ technical indicators, and Parquet data loaders.*
 
@@ -6,19 +6,19 @@ High-throughput market data ingestion, normalization, and indicator calculation 
 
 ## Subcrates
 
-- `vyapaar-market` — Unified market data facade
-- `vyapaar-market-core` — Core feed traits, order book structures, and bar aggregates
-- `vyapaar-market-feed` — Multi-provider connection multiplexer
-- `vyapaar-market-normalizer` — Normalization of heterogeneous broker ticks into canonical `Tick`
-- `vyapaar-market-indicators` — 100+ streaming technical indicators
-- `vyapaar-market-signals` — Event-driven signal generators
-- `vyapaar-market-store` — In-memory ring buffer & tick cache
-- `vyapaar-market-loaders` — Parquet & CSV historical tick/bar loaders
-- `vyapaar-market-finance` — Financial data series and macro feeds
-- `vyapaar-market-zerodha` — Zerodha Kite ticker WebSocket client
-- `vyapaar-market-upstox` — Upstox market data WebSocket client
-- `vyapaar-market-angelone` — Angel One SmartAPI WebSocket client
-- `vyapaar-market-fyers` — Fyers WebSocket market data client
+- `tantra-market` — Unified market data facade
+- `tantra-market-core` — Core feed traits, order book structures, and bar aggregates
+- `tantra-market-feed` — Multi-provider connection multiplexer
+- `tantra-market-normalizer` — Normalization of heterogeneous broker ticks into canonical `Tick`
+- `tantra-market-indicators` — 100+ streaming technical indicators
+- `tantra-market-signals` — Event-driven signal generators
+- `tantra-market-store` — In-memory ring buffer & tick cache
+- `tantra-market-loaders` — Parquet & CSV historical tick/bar loaders
+- `tantra-market-finance` — Financial data series and macro feeds
+- `tantra-market-zerodha` — Zerodha Kite ticker WebSocket client
+- `tantra-market-upstox` — Upstox market data WebSocket client
+- `tantra-market-angelone` — Angel One SmartAPI WebSocket client
+- `tantra-market-fyers` — Fyers WebSocket market data client
 
 ## Build & Test
 
