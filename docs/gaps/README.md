@@ -13,6 +13,7 @@ at the workspace root for cross-repo visibility.
 | # | Title | Area |
 |---|-------|------|
 | [0003](0003-broker-websocket-feed-stubs.md) | Real broker WS feeds — **feature tracker, 2 of 5 shipped**: `tantra-market-dhan` (DhanHQ v2, commit `fb82571`) and `tantra-market-zerodha` (Kite Connect 3, commit `ad79205`) are real `MarketDataFeed` implementations; `upstox`, `fyers`, `angelone` remain to be re-added as real crates when their wire protocols are implemented | `crates/tantra-market-{dhan,zerodha}` + re-added on implementation |
+| [0005](0005-elephant-zones-oi-levels-and-orderblock-indicators.md) | No Elephant-zone / OI-wall / gamma-profile / Order-Block indicators (Elephant Edge EE+ level feeds) | `crates/tantra-market-indicators` |
 
 ## Closed gaps
 
