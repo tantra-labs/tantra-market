@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use tantra_core::{Currency, Exchange, InstrumentId, InstrumentKind};
 use thiserror::Error;
 
@@ -151,6 +152,44 @@ impl InstrumentMaster for DatasetReader {
         let mut instruments: Vec<Instrument> = self.instruments.values().cloned().collect();
         instruments.sort_by(|a, b| crate::wire::instrument_cmp(a.id(), b.id()));
         Ok(instruments)
+    }
+
+    async fn list_chain(
+        &self,
+        underlying: &InstrumentId,
+        _as_of: Option<NaiveDate>,
+    ) -> PortResult<Vec<Instrument>> {
+        // This reader holds no dated history, so the chain is the current state,
+        // expiry-filter-free (same semantics as the master's `None` branch).
+        let mut chain: Vec<Instrument> = self
+            .instruments
+            .values()
+            .filter(|inst| {
+                inst.kind() == InstrumentKind::Option
+                    && inst
+                        .underlying()
+                        .is_some_and(|u| u.eq_ignore_ascii_case(&underlying.symbol))
+            })
+            .cloned()
+            .collect();
+        chain.sort_by(|a, b| {
+            let expiry = |i: &Instrument| i.expiry().unwrap_or(NaiveDate::MAX);
+            let strike = |i: &Instrument| i.strike().unwrap_or(f64::INFINITY);
+            let ot = |i: &Instrument| match i.option_type() {
+                Some(tantra_core::OptionType::Call) => 0u8,
+                Some(tantra_core::OptionType::Put) => 1u8,
+                None => 2u8,
+            };
+            expiry(a)
+                .cmp(&expiry(b))
+                .then_with(|| {
+                    strike(a)
+                        .partial_cmp(&strike(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| ot(a).cmp(&ot(b)))
+        });
+        Ok(chain)
     }
 }
 

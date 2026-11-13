@@ -14,7 +14,7 @@
 //! connector failure), so the error type is local too.
 
 use chrono::NaiveDate;
-use tantra_core::InstrumentId;
+use tantra_core::{InstrumentId, OptionType, Price, Quantity};
 
 use crate::wire::{Bar, BarSpecification, Instrument, QuoteTick, TradeTick, UnixNanos};
 
@@ -284,6 +284,21 @@ pub trait InstrumentMaster: Send + Sync {
     async fn get_instrument(&self, id: &InstrumentId) -> PortResult<Option<Instrument>>;
     /// Lists every instrument this master knows about.
     async fn list_instruments(&self) -> PortResult<Vec<Instrument>>;
+    /// Lists the option contracts of `underlying` — the chain enumeration
+    /// (`tantra-market/docs/gaps/0001-options-chain-reader.md`), ordered by
+    /// expiry, then strike, then option type. `as_of = Some(date)` serves the
+    /// in-force chain as of that date; `None` serves the latest merged state
+    /// (the live listing). The default errors, since most masters only know
+    /// the current state; dated masters override it.
+    async fn list_chain(
+        &self,
+        _underlying: &InstrumentId,
+        _as_of: Option<NaiveDate>,
+    ) -> PortResult<Vec<Instrument>> {
+        Err(PortError::Unsupported(
+            "this instrument master cannot enumerate options chains".into(),
+        ))
+    }
     /// A dated snapshot source may override these to serve historical
     /// catalog states; the default errors, since most masters only know
     /// the current state.
@@ -303,6 +318,53 @@ pub trait InstrumentMaster: Send + Sync {
             "this instrument master holds no dated history".into(),
         ))
     }
+}
+
+/// One listed option contract in a chain snapshot (`tantra-market/docs/gaps/0001`).
+///
+/// This is the **exact-decimal** boundary DTO for chain consumers (the chat
+/// `options_chain` tool, the runtime `FeedMarketReader`): prices and quantities
+/// are canonical `tantra_core::Price`/`Quantity`, never `f64`, per the
+/// zero-floats policy. It is deliberately distinct from the crate's legacy
+/// `f64` wire types, which the Parquet columnar engine still uses.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChainContract {
+    /// The option contract itself (e.g. "NFO:NIFTY26NOV24000CE").
+    pub instrument: InstrumentId,
+    /// Call or put.
+    pub option_type: OptionType,
+    /// Strike price.
+    pub strike: Price,
+    /// Contract expiry (a calendar date; the exchange expiry day).
+    pub expiry: NaiveDate,
+    /// Trading lot size.
+    pub lot_size: Quantity,
+    /// Last traded price, when quoted.
+    pub last_price: Option<Price>,
+    /// Best bid price, when quoted.
+    pub bid: Option<Price>,
+    /// Best ask price, when quoted.
+    pub ask: Option<Price>,
+    /// Open interest, when an OI source is wired (see
+    /// `tantra-market/docs/gaps/0002-open-interest-history-and-buildup-tracking.md`).
+    pub open_interest: Option<Quantity>,
+}
+
+/// Serves the listed option chain for an underlying, joining each contract
+/// with its latest quote (and open interest, when an OI store is wired) —
+/// closes `tantra-market/docs/gaps/0001-options-chain-reader.md`.
+#[async_trait::async_trait]
+pub trait ChainReader: Send + Sync {
+    /// Enumerates the option contracts of `underlying` — optionally restricted
+    /// to one `expiry` date — capped at `limit` (implementor-chosen default
+    /// when `None`), joined with quote and OI fields. Ordered by expiry, then
+    /// strike, then option type.
+    async fn options_chain(
+        &self,
+        underlying: &InstrumentId,
+        expiry: Option<NaiveDate>,
+        limit: Option<usize>,
+    ) -> PortResult<Vec<ChainContract>>;
 }
 
 /// A live or replayed source of [`MarketEvent`]s for a subscribed instrument set.

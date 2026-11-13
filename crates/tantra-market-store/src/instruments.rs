@@ -198,6 +198,52 @@ impl InstrumentMaster for CatalogInstrumentMaster {
             .collect())
     }
 
+    async fn list_chain(
+        &self,
+        underlying: &InstrumentId,
+        as_of: Option<NaiveDate>,
+    ) -> PortResult<Vec<Instrument>> {
+        // `Some(date)` serves the in-force chain as of that date (expired
+        // contracts excluded); `None` serves the latest merged state — the
+        // live listing — matching `list_instruments`' semantics.
+        let records = match as_of {
+            Some(date) => self.in_force(date),
+            None => self
+                .merged()
+                .into_values()
+                .cloned()
+                .collect::<Vec<DatedInstrument>>(),
+        };
+        let mut chain: Vec<Instrument> = records
+            .into_iter()
+            .map(|dated| dated.instrument)
+            .filter(|inst| {
+                inst.kind() == tantra_core::InstrumentKind::Option
+                    && inst
+                        .underlying()
+                        .is_some_and(|u| u.eq_ignore_ascii_case(&underlying.symbol))
+            })
+            .collect();
+        chain.sort_by(|a, b| {
+            let expiry = |i: &Instrument| i.expiry().unwrap_or(NaiveDate::MAX);
+            let strike = |i: &Instrument| i.strike().unwrap_or(f64::INFINITY);
+            let ot = |i: &Instrument| match i.option_type() {
+                Some(tantra_core::OptionType::Call) => 0u8,
+                Some(tantra_core::OptionType::Put) => 1u8,
+                None => 2u8,
+            };
+            expiry(a)
+                .cmp(&expiry(b))
+                .then_with(|| {
+                    strike(a)
+                        .partial_cmp(&strike(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| ot(a).cmp(&ot(b)))
+        });
+        Ok(chain)
+    }
+
     async fn snapshot(&self, as_of: NaiveDate) -> PortResult<Vec<DatedInstrument>> {
         Ok(self.in_force(as_of))
     }
