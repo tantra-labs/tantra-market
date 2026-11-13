@@ -2,9 +2,7 @@
 
 use tantra_market_signals::catalog::{Params, SignalHorizon};
 use tantra_market_signals::detector::Detector;
-use tantra_market_signals::detectors::price_action::{
-    BreakOfStructure, Candlestick, FractalPivot,
-};
+use tantra_market_signals::detectors::price_action::{BreakOfStructure, Candlestick, FractalPivot};
 use tantra_market_signals::series::Series;
 mod common;
 use common::bars_ohlcv;

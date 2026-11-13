@@ -390,9 +390,7 @@ async fn failed_flush_keeps_ticks_and_retries_then_surfaces_the_error() {
 
 #[test]
 fn legacy_tick_store_migrates_into_the_lakehouse_as_exact_decimals() {
-    use tantra_market_store::canonical::{
-        bars_to_canonical, decimal_from_f64, migrate_tick_store,
-    };
+    use tantra_market_store::canonical::{bars_to_canonical, decimal_from_f64, migrate_tick_store};
     use tantra_market_store::wire::{
         AggressorSide, Bar as WireBar, BarAggregation, BarSpecification, BarType, PriceType,
         QuoteTick, TradeId, TradeTick, UnixNanos,

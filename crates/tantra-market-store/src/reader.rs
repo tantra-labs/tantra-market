@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use async_trait::async_trait;
-use thiserror::Error;
 use tantra_core::{Currency, Exchange, InstrumentId, InstrumentKind};
+use thiserror::Error;
 
 use crate::dataset::{Dataset, DatasetBuildError};
 use crate::ports::{

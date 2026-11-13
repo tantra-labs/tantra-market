@@ -1,0 +1,17 @@
+[package]
+name = "tantra-market"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Facade of the tantra-market bounded context (Eye): re-exports the member crates"
+
+[dependencies]
+tantra-market-core = { workspace = true }
+tantra-market-normalizer = { workspace = true }
+tantra-market-indicators = { workspace = true }
+tantra-market-signals = { workspace = true }
+tantra-market-store = { workspace = true }
+tantra-market-finance = { workspace = true }
+tantra-market-pricing = { workspace = true }

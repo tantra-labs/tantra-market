@@ -13,8 +13,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use thiserror::Error;
 use tantra_core::{DatasetId, InstrumentId};
+use thiserror::Error;
 
 use crate::import::parquet_source::{ParquetBarSource, ParquetError};
 use crate::ports::MarketEvent;

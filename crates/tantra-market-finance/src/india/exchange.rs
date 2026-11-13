@@ -8,8 +8,8 @@
 use std::fmt;
 use std::str::FromStr;
 
-use thiserror::Error;
 use tantra_core::{Exchange, InstrumentId};
+use thiserror::Error;
 
 /// An Indian exchange that Tantra can load and trade instruments for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -1,6 +1,7 @@
-# 0003 — Broker WebSocket feed crates are empty stubs
+# 0003 — Real broker WebSocket feed implementations
 
-**Status**: open
+**Status**: open — **feature tracker**. The empty stub crates were removed 2026-11-13
+(root plan 0003 Phase 1); this gap now tracks the real feed implementations (task T3.3).
 
 Cross-reference: root gap `docs/gaps/0001-market-broker-feed-stubs.md`
 (provider repo `tantra-market`).

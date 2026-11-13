@@ -12,8 +12,8 @@ use std::path::Path;
 
 use async_trait::async_trait;
 use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
-use thiserror::Error;
 use tantra_core::{Exchange, InstrumentId};
+use thiserror::Error;
 
 use crate::ports::{
     ConnectorState, MarketDataConnector, MarketEvent, PortResult, Subscription, SubscriptionParams,

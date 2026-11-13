@@ -40,12 +40,12 @@ use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use parquet::basic::{Compression, ZstdLevel};
 use parquet::file::properties::WriterProperties;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 use tantra_core::rust_decimal::Decimal;
 use tantra_core::{
     Bar, BarRequest, DepthLevel, Exchange, InstrumentId, PortError, PortResult, Price, PriceBand,
     Quantity, Tick, TickRequest, Timeframe,
 };
+use thiserror::Error;
 
 /// Decimal precision of every price / quantity column.
 pub const PRICE_PRECISION: u8 = 18;

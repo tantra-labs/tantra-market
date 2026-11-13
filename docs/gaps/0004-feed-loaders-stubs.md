@@ -1,6 +1,8 @@
-# 0004 — `tantra-market-feed` and `tantra-market-loaders` are empty stubs
+# 0004 — Real `tantra-market` feed / loaders implementations
 
-**Status**: open
+**Status**: open — **feature tracker**. The empty stub crates were removed 2026-11-13
+(root plan 0003 Phase 1); real feed traits live in `core`, loaders live in `store`
+(task T3.4).
 
 Cross-reference: root gap `docs/gaps/0002-market-feed-loaders-stubs.md`
 (provider repo `tantra-market`).

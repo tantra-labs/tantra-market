@@ -15,9 +15,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use tantra_core::Tick;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tantra_core::Tick;
 
 use crate::lakehouse::{Lakehouse, LakehouseError};
 

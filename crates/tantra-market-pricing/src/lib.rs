@@ -43,9 +43,9 @@ use std::f64::consts::PI;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::ToPrimitive;
-use thiserror::Error;
 use tantra_core::{OptionType, Price};
 use tantra_market_finance::FnoContract;
+use thiserror::Error;
 
 /// Pricing errors.
 #[derive(Debug, Error, PartialEq, Eq)]

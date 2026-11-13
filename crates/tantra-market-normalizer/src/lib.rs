@@ -11,8 +11,8 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
-use thiserror::Error;
 use tantra_core::{Exchange, InstrumentId, Price, Quantity};
+use thiserror::Error;
 
 /// Errors from the instrument master.
 #[derive(Debug, Error)]

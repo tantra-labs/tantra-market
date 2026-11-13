@@ -1,20 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/tantra-market",
   "crates/tantra-market-core",
-  "crates/tantra-market-feed",
   "crates/tantra-market-normalizer",
   "crates/tantra-market-indicators",
   "crates/tantra-market-signals",
-  "crates/tantra-market-loaders",
   "crates/tantra-market-store",
   "crates/tantra-market-finance",
   "crates/tantra-market-pricing",
-  "crates/tantra-market-zerodha",
-  "crates/tantra-market-upstox",
-  "crates/tantra-market-fyers",
-  "crates/tantra-market-angelone",
-  "crates/tantra-market-dhan",
 ]
 
 [workspace.package]
@@ -28,6 +22,7 @@ repository = "https://github.com/tantra-labs/tantra-market"
 # Internal cross-repo kernel
 tantra-core = { path = "../tantra-core" }
 # Internal market-data crates (Tier 2A port of honba-me)
+tantra-market = { path = "crates/tantra-market" }
 tantra-market-core = { path = "crates/tantra-market-core" }
 tantra-market-finance = { path = "crates/tantra-market-finance" }
 tantra-market-pricing = { path = "crates/tantra-market-pricing" }
@@ -35,13 +30,6 @@ tantra-market-normalizer = { path = "crates/tantra-market-normalizer" }
 tantra-market-indicators = { path = "crates/tantra-market-indicators" }
 tantra-market-signals = { path = "crates/tantra-market-signals" }
 tantra-market-store = { path = "crates/tantra-market-store" }
-tantra-market-feed = { path = "crates/tantra-market-feed" }
-tantra-market-loaders = { path = "crates/tantra-market-loaders" }
-tantra-market-zerodha = { path = "crates/tantra-market-zerodha" }
-tantra-market-upstox = { path = "crates/tantra-market-upstox" }
-tantra-market-fyers = { path = "crates/tantra-market-fyers" }
-tantra-market-angelone = { path = "crates/tantra-market-angelone" }
-tantra-market-dhan = { path = "crates/tantra-market-dhan" }
 # Performance analytics (report exporters in tantra-market-store)
 tantra-agent-analytics = { path = "../tantra-agent/crates/tantra-agent-analytics" }
 
