@@ -10,6 +10,7 @@ members = [
   "crates/tantra-market-store",
   "crates/tantra-market-finance",
   "crates/tantra-market-pricing",
+  "crates/tantra-market-zerodha",
 ]
 
 [workspace.package]
@@ -28,6 +29,7 @@ tantra-market-core = { path = "crates/tantra-market-core" }
 tantra-market-dhan = { path = "crates/tantra-market-dhan" }
 tantra-market-finance = { path = "crates/tantra-market-finance" }
 tantra-market-pricing = { path = "crates/tantra-market-pricing" }
+tantra-market-zerodha = { path = "crates/tantra-market-zerodha" }
 tantra-market-normalizer = { path = "crates/tantra-market-normalizer" }
 tantra-market-indicators = { path = "crates/tantra-market-indicators" }
 tantra-market-signals = { path = "crates/tantra-market-signals" }
