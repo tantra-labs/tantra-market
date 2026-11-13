@@ -2,6 +2,7 @@
 
 pub mod cash_equity;
 pub mod model;
+pub mod segments;
 pub mod source;
 pub mod stt;
 
