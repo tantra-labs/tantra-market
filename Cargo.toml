@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/tantra-market",
   "crates/tantra-market-core",
+  "crates/tantra-market-dhan",
   "crates/tantra-market-normalizer",
   "crates/tantra-market-indicators",
   "crates/tantra-market-signals",
@@ -24,6 +25,7 @@ tantra-core = { path = "../tantra-core" }
 # Internal market-data crates (Tier 2A port of honba-me)
 tantra-market = { path = "crates/tantra-market" }
 tantra-market-core = { path = "crates/tantra-market-core" }
+tantra-market-dhan = { path = "crates/tantra-market-dhan" }
 tantra-market-finance = { path = "crates/tantra-market-finance" }
 tantra-market-pricing = { path = "crates/tantra-market-pricing" }
 tantra-market-normalizer = { path = "crates/tantra-market-normalizer" }
@@ -35,7 +37,7 @@ tantra-agent-analytics = { path = "../tantra-agent/crates/tantra-agent-analytics
 
 # Async runtime & networking (native-only crates: feed, store, loaders, brokers)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
-tokio-stream = "0.1"
+tokio-stream = { version = "0.1", features = ["sync"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 async-trait = "0.1"
 futures = "0.3"
