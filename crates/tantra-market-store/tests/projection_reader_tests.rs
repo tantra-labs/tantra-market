@@ -15,6 +15,7 @@ use tantra_market_store::import::delivery_projection::DeliveryProjectionReader;
 use tantra_market_store::import::economic_calendar_projection::EconomicCalendarProjectionReader;
 use tantra_market_store::import::filings_projection::FilingsProjectionReader;
 use tantra_market_store::import::fundamentals_projection::FundamentalsProjectionReader;
+use tantra_market_store::import::funds_ipos_projection::FundsIposProjectionReader;
 use tantra_market_store::import::institutional_flows_projection::InstitutionalFlowsProjectionReader;
 use tantra_market_store::import::news_projection::NewsProjectionReader;
 use tempfile::tempdir;
@@ -785,4 +786,273 @@ fn fundamentals_reader_decodes_ratios_with_nullable_decimal_columns() {
     );
     assert_eq!(rows[0].pb, None);
     assert_eq!(rows[1].pe, None);
+}
+
+#[test]
+fn funds_projection_reader_decodes_meta_nav_and_returns() {
+    let dir = tempdir().unwrap();
+    let epoch_days = |y: i32, m: u32, d: u32| -> i32 {
+        (NaiveDate::from_ymd_opt(y, m, d).unwrap() - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .num_days() as i32
+    };
+
+    // Scheme metadata.
+    let funds_dir = dir.path().join("catalog").join("mutual_funds");
+    std::fs::create_dir_all(&funds_dir).unwrap();
+    let funds_schema = Arc::new(Schema::new(vec![
+        Field::new("as_of_date", DataType::Date32, false),
+        Field::new("scheme_code", DataType::Utf8, false),
+        Field::new("scheme_name", DataType::Utf8, false),
+        Field::new("amc", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("isin_growth", DataType::Utf8, true),
+        Field::new("isin_div_reinvestment", DataType::Utf8, true),
+        Field::new("plan", DataType::Utf8, false),
+        Field::new("option", DataType::Utf8, false),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let funds_batch = RecordBatch::try_new(
+        funds_schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 14)])),
+            Arc::new(StringArray::from(vec!["118565"])),
+            Arc::new(StringArray::from(vec![
+                "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+            ])),
+            Arc::new(StringArray::from(vec!["PPFAS"])),
+            Arc::new(StringArray::from(vec!["Flexi Cap"])),
+            Arc::new(StringArray::from(vec![Some("INF175K01IM8")])),
+            Arc::new(StringArray::from(vec![None::<&str>])),
+            Arc::new(StringArray::from(vec!["Growth"])),
+            Arc::new(StringArray::from(vec!["Direct"])),
+            Arc::new(StringArray::from(vec!["amfi"])),
+        ],
+    )
+    .unwrap();
+    write_projection(
+        &funds_dir.join("2026-11-14.parquet"),
+        funds_schema,
+        funds_batch,
+    );
+
+    // NAV observation.
+    let nav_dir = dir.path().join("catalog").join("mf_nav");
+    std::fs::create_dir_all(&nav_dir).unwrap();
+    let nav_schema = Arc::new(Schema::new(vec![
+        Field::new("nav_date", DataType::Date32, false),
+        Field::new("scheme_code", DataType::Utf8, false),
+        Field::new("nav", DataType::Decimal128(18, 4), false),
+        Field::new("repurchase_price", DataType::Decimal128(18, 4), true),
+        Field::new("sale_price", DataType::Decimal128(18, 4), true),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let nav = Decimal128Array::from(vec![10_455_190i128])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let prices = Decimal128Array::from(vec![None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let nav_batch = RecordBatch::try_new(
+        nav_schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 13)])),
+            Arc::new(StringArray::from(vec!["118565"])),
+            Arc::new(nav),
+            Arc::new(prices.clone()),
+            Arc::new(prices.clone()),
+            Arc::new(StringArray::from(vec!["amfi"])),
+        ],
+    )
+    .unwrap();
+    write_projection(&nav_dir.join("2026-11-13.parquet"), nav_schema, nav_batch);
+
+    // Return metrics.
+    let returns_dir = dir.path().join("catalog").join("mf_returns");
+    std::fs::create_dir_all(&returns_dir).unwrap();
+    let returns_schema = Arc::new(Schema::new(vec![
+        Field::new("as_of_date", DataType::Date32, false),
+        Field::new("scheme_code", DataType::Utf8, false),
+        Field::new("cagr_1y", DataType::Decimal128(18, 4), true),
+        Field::new("expense_ratio", DataType::Decimal128(18, 4), true),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let cagr = Decimal128Array::from(vec![Some(234_100i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let returns_batch = RecordBatch::try_new(
+        returns_schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 14)])),
+            Arc::new(StringArray::from(vec!["118565"])),
+            Arc::new(cagr),
+            Arc::new(prices.clone()),
+            Arc::new(StringArray::from(vec!["amfi"])),
+        ],
+    )
+    .unwrap();
+    write_projection(
+        &returns_dir.join("2026-11-14.parquet"),
+        returns_schema,
+        returns_batch,
+    );
+
+    let reader = FundsIposProjectionReader::new(dir.path());
+    let metas = reader.read_mutual_funds().unwrap();
+    assert_eq!(metas.len(), 1);
+    assert_eq!(metas[0].scheme_code, "118565");
+    assert_eq!(metas[0].category, "Flexi Cap");
+    assert_eq!(metas[0].isin_growth.as_deref(), Some("INF175K01IM8"));
+    let navs = reader.read_mf_nav().unwrap();
+    assert_eq!(
+        navs[0].nav,
+        Decimal::try_from_i128_with_scale(10_455_190, 4).unwrap()
+    );
+    assert_eq!(navs[0].repurchase_price, None);
+    let returns = reader.read_mf_returns().unwrap();
+    assert_eq!(
+        returns[0].cagr_1y,
+        Some(Decimal::try_from_i128_with_scale(234_100, 4).unwrap())
+    );
+    assert_eq!(returns[0].expense_ratio, None);
+}
+
+#[test]
+fn ipo_projection_reader_decodes_issues_and_subscriptions() {
+    let dir = tempdir().unwrap();
+    let epoch_days = |y: i32, m: u32, d: u32| -> i32 {
+        (NaiveDate::from_ymd_opt(y, m, d).unwrap() - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .num_days() as i32
+    };
+
+    let ipos_dir = dir.path().join("catalog").join("ipos");
+    std::fs::create_dir_all(&ipos_dir).unwrap();
+    let ipos_schema = Arc::new(Schema::new(vec![
+        Field::new("as_of_date", DataType::Date32, false),
+        Field::new("symbol", DataType::Utf8, false),
+        Field::new("company_name", DataType::Utf8, false),
+        Field::new("board", DataType::Utf8, false),
+        Field::new("status", DataType::Utf8, false),
+        Field::new("open_date", DataType::Date32, true),
+        Field::new("close_date", DataType::Date32, true),
+        Field::new("listing_date", DataType::Date32, true),
+        Field::new("price_band_low", DataType::Decimal128(18, 4), true),
+        Field::new("price_band_high", DataType::Decimal128(18, 4), true),
+        Field::new("issue_price", DataType::Decimal128(18, 4), true),
+        Field::new("lot_size", DataType::Decimal128(18, 4), true),
+        Field::new("issue_size_cr", DataType::Decimal128(18, 4), true),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let low = Decimal128Array::from(vec![Some(50_00000i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let high = Decimal128Array::from(vec![Some(55_00000i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let lot = Decimal128Array::from(vec![Some(2500i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let size = Decimal128Array::from(vec![Some(12_000_000i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let none = Decimal128Array::from(vec![None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let ipos_batch = RecordBatch::try_new(
+        ipos_schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 14)])),
+            Arc::new(StringArray::from(vec!["ZAGGLECOM"])),
+            Arc::new(StringArray::from(vec!["Zaggle Prepaid Ocean Services Ltd"])),
+            Arc::new(StringArray::from(vec!["Main"])),
+            Arc::new(StringArray::from(vec!["Open"])),
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 18)])),
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 20)])),
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 25)])),
+            Arc::new(low),
+            Arc::new(high),
+            Arc::new(none.clone()),
+            Arc::new(lot),
+            Arc::new(size),
+            Arc::new(StringArray::from(vec!["nse"])),
+        ],
+    )
+    .unwrap();
+    write_projection(
+        &ipos_dir.join("2026-11-14.parquet"),
+        ipos_schema,
+        ipos_batch,
+    );
+
+    let subs_dir = dir.path().join("catalog").join("ipo_subscriptions");
+    std::fs::create_dir_all(&subs_dir).unwrap();
+    let subs_schema = Arc::new(Schema::new(vec![
+        Field::new("as_of_date", DataType::Date32, false),
+        Field::new("symbol", DataType::Utf8, false),
+        Field::new("qib", DataType::Decimal128(18, 4), true),
+        Field::new("nii", DataType::Decimal128(18, 4), true),
+        Field::new("bnii", DataType::Decimal128(18, 4), true),
+        Field::new("snii", DataType::Decimal128(18, 4), true),
+        Field::new("rii", DataType::Decimal128(18, 4), true),
+        Field::new("total", DataType::Decimal128(18, 4), true),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let qib = Decimal128Array::from(vec![Some(12_3450i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let total = Decimal128Array::from(vec![Some(28_9400i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let subs_batch = RecordBatch::try_new(
+        subs_schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 14)])),
+            Arc::new(StringArray::from(vec!["ZAGGLECOM"])),
+            Arc::new(qib),
+            Arc::new(none.clone()),
+            Arc::new(none.clone()),
+            Arc::new(none.clone()),
+            Arc::new(none.clone()),
+            Arc::new(total),
+            Arc::new(StringArray::from(vec!["nse"])),
+        ],
+    )
+    .unwrap();
+    write_projection(
+        &subs_dir.join("2026-11-14.parquet"),
+        subs_schema,
+        subs_batch,
+    );
+
+    let reader = FundsIposProjectionReader::new(dir.path());
+    let issues = reader.read_ipos().unwrap();
+    assert_eq!(issues.len(), 1);
+    assert_eq!(issues[0].symbol, "ZAGGLECOM");
+    assert_eq!(issues[0].status, "Open");
+    assert_eq!(
+        issues[0].open_date,
+        Some(NaiveDate::from_ymd_opt(2026, 11, 18).unwrap())
+    );
+    assert_eq!(
+        issues[0].price_band_low,
+        Some(Decimal::try_from_i128_with_scale(50_00000, 4).unwrap())
+    );
+    assert_eq!(issues[0].issue_price, None);
+    let subscriptions = reader.read_ipo_subscriptions().unwrap();
+    assert_eq!(
+        subscriptions[0].qib,
+        Some(Decimal::try_from_i128_with_scale(12_3450, 4).unwrap())
+    );
+    assert_eq!(
+        subscriptions[0].total,
+        Some(Decimal::try_from_i128_with_scale(28_9400, 4).unwrap())
+    );
+    assert_eq!(subscriptions[0].nii, None);
+}
+
+/// Writes one projection batch to `path` (test helper).
+fn write_projection(path: &std::path::Path, schema: Arc<Schema>, batch: RecordBatch) {
+    let file = std::fs::File::create(path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
 }

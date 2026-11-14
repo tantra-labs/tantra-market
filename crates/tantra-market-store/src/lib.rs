@@ -58,6 +58,10 @@ pub use import::fundamentals_projection::{
     FundamentalRatiosProjection, FundamentalStatementProjection, FundamentalsProjectionError,
     FundamentalsProjectionReader,
 };
+pub use import::funds_ipos_projection::{
+    FundsIposProjectionError, FundsIposProjectionReader, IpoProjection, IpoSubscriptionProjection,
+    MutualFundMetaProjection, MutualFundNavProjection, MutualFundReturnProjection,
+};
 pub use import::institutional_flows_projection::{
     InstitutionalFlowProjection, InstitutionalFlowsProjectionError,
     InstitutionalFlowsProjectionReader,
