@@ -39,6 +39,9 @@ pub use dataset::{
 pub use export::{
     CsvReportWriter, ExportError, JsonReportWriter, MarkdownReportWriter, ReportWriter,
 };
+pub use import::block_deals_projection::{
+    BlockDealProjection, BlockDealsProjectionError, BlockDealsProjectionReader,
+};
 pub use import::corporate_actions_projection::{
     CorporateActionProjection, CorporateActionsProjectionError, CorporateActionsProjectionReader,
 };

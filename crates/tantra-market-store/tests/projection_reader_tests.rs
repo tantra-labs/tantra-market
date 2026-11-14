@@ -9,6 +9,7 @@ use arrow::record_batch::RecordBatch;
 use chrono::NaiveDate;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use rust_decimal::Decimal;
+use tantra_market_store::import::block_deals_projection::BlockDealsProjectionReader;
 use tantra_market_store::import::corporate_actions_projection::CorporateActionsProjectionReader;
 use tantra_market_store::import::filings_projection::FilingsProjectionReader;
 use tempfile::tempdir;
@@ -154,6 +155,92 @@ fn corporate_actions_reader_decodes_decimal_and_nullable_columns() {
 }
 
 #[test]
+fn block_deals_reader_decodes_rows_and_nullable_remarks() {
+    let dir = tempdir().unwrap();
+    let block_deals_dir = dir.path().join("catalog").join("block_deals");
+    std::fs::create_dir_all(&block_deals_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("trade_date", DataType::Date32, false),
+        Field::new("exchange", DataType::Utf8, false),
+        Field::new("instrument", DataType::Utf8, false),
+        Field::new("security_name", DataType::Utf8, false),
+        Field::new("client_name", DataType::Utf8, false),
+        Field::new("side", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("quantity", DataType::Decimal128(18, 4), false),
+        Field::new("price", DataType::Decimal128(18, 4), false),
+        Field::new("remarks", DataType::Utf8, true),
+    ]));
+    let quantities = Decimal128Array::from(vec![Some(25_000_000_i128), Some(10_000_000_i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let prices = Decimal128Array::from(vec![Some(250_050_i128), Some(400_000_i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![0i32, 1])),
+            Arc::new(StringArray::from(vec!["NSE", "NSE"])),
+            Arc::new(StringArray::from(vec!["NSE:RELIANCE-EQ", "NSE:TCS-EQ"])),
+            Arc::new(StringArray::from(vec!["RELIANCE", "TCS"])),
+            Arc::new(StringArray::from(vec!["CLIENT A", "CLIENT B"])),
+            Arc::new(StringArray::from(vec!["BUY", "SELL"])),
+            Arc::new(StringArray::from(vec!["block", "bulk"])),
+            Arc::new(quantities),
+            Arc::new(prices),
+            Arc::new(StringArray::from(vec![Some("Block deal window"), None])),
+        ],
+    )
+    .unwrap();
+
+    let path = block_deals_dir.join("2026-01-05.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = BlockDealsProjectionReader::new(dir.path()).read().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].trade_date,
+        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()
+    );
+    assert_eq!(rows[0].exchange, "NSE");
+    assert_eq!(rows[0].instrument, "NSE:RELIANCE-EQ");
+    assert_eq!(rows[0].security_name, "RELIANCE");
+    assert_eq!(rows[0].client_name, "CLIENT A");
+    assert_eq!(rows[0].side, "BUY");
+    assert_eq!(rows[0].category, "block");
+    assert_eq!(
+        rows[0].quantity,
+        Decimal::try_from_i128_with_scale(25_000_000, 4).unwrap()
+    );
+    assert_eq!(
+        rows[0].price,
+        Decimal::try_from_i128_with_scale(250_050, 4).unwrap()
+    );
+    assert_eq!(rows[0].remarks.as_deref(), Some("Block deal window"));
+    assert_eq!(
+        rows[1].trade_date,
+        NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()
+    );
+    assert_eq!(rows[1].instrument, "NSE:TCS-EQ");
+    assert_eq!(rows[1].side, "SELL");
+    assert_eq!(rows[1].category, "bulk");
+    assert_eq!(
+        rows[1].quantity,
+        Decimal::try_from_i128_with_scale(10_000_000, 4).unwrap()
+    );
+    assert_eq!(
+        rows[1].price,
+        Decimal::try_from_i128_with_scale(400_000, 4).unwrap()
+    );
+    assert_eq!(rows[1].remarks, None);
+}
+
+#[test]
 fn readers_return_empty_for_a_missing_catalog_directory() {
     let dir = tempdir().unwrap();
     assert!(
@@ -164,6 +251,12 @@ fn readers_return_empty_for_a_missing_catalog_directory() {
     );
     assert!(
         CorporateActionsProjectionReader::new(dir.path())
+            .read()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        BlockDealsProjectionReader::new(dir.path())
             .read()
             .unwrap()
             .is_empty()
