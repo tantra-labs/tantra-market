@@ -1,24 +1,36 @@
 //! A writable latest-quote store layered over a [`DatasetReader`].
 //!
 //! [`LiveQuoteStore`] is a [`QuoteReader`] whose "latest" answer can be refreshed from a live
-//! feed ([`LiveQuoteStore::put_quote`], [`LiveQuoteStore::put_bar`]). A query with `as_of`
-//! keeps replay semantics and is answered by the fallback dataset; only the latest-quote query
-//! (`as_of = None`) sees live data, and falls back to the dataset until the first write.
+//! feed ([`LiveQuoteStore::put_quote`], [`LiveQuoteStore::put_bar`]), and a [`TradeReader`]
+//! whose latest trade print and session-day volume can be refreshed from a live trade feed
+//! ([`LiveQuoteStore::put_trade`]). A query with `as_of` keeps replay semantics and is answered
+//! by the fallback dataset; only the latest-quote query (`as_of = None`) sees live data, and
+//! falls back to the dataset until the first write.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
+use chrono::NaiveDate;
 use tantra_core::InstrumentId;
 
 use crate::DatasetReader;
-use crate::ports::{PortResult, QuoteReader};
-use crate::wire::{Bar, QuoteTick, UnixNanos};
+use crate::ports::{PortResult, QuoteReader, TradeReader, TradeSnapshot};
+use crate::wire::{Bar, QuoteTick, TradeTick, UnixNanos};
+
+/// The live state kept per instrument: the latest trade and the day-volume accumulator.
+#[derive(Debug, Clone)]
+struct LiveTradeState {
+    last: TradeTick,
+    day_volume: f64,
+    volume_date: NaiveDate,
+}
 
 /// Latest live quotes per instrument, with a [`DatasetReader`] fallback.
 #[derive(Debug)]
 pub struct LiveQuoteStore {
     live: RwLock<HashMap<InstrumentId, QuoteTick>>,
+    trades: RwLock<HashMap<InstrumentId, LiveTradeState>>,
     fallback: Arc<DatasetReader>,
 }
 
@@ -27,6 +39,7 @@ impl LiveQuoteStore {
     pub fn new(fallback: Arc<DatasetReader>) -> Self {
         Self {
             live: RwLock::new(HashMap::new()),
+            trades: RwLock::new(HashMap::new()),
             fallback,
         }
     }
@@ -58,6 +71,34 @@ impl LiveQuoteStore {
         ));
     }
 
+    /// Records `trade` unless the held trade for its instrument has a later `ts_event`.
+    /// An equal `ts_event` replaces (the newer write wins). The session-day volume is
+    /// reset on the first trade of a new UTC day and accumulated afterwards.
+    pub fn put_trade(&self, trade: TradeTick) {
+        let mut trades = self.trades.write().unwrap_or_else(|e| e.into_inner());
+        let trade_date = trade.ts_event().to_datetime().date_naive();
+        let held = trades.get(trade.instrument_id());
+        if held.is_some_and(|state| state.last.ts_event() > trade.ts_event()) {
+            return;
+        }
+        let state = match held {
+            Some(state) if state.volume_date == trade_date => LiveTradeState {
+                last: trade.clone(),
+                day_volume: state.day_volume + trade.size(),
+                volume_date: state.volume_date,
+            },
+            _ => {
+                let size = trade.size();
+                LiveTradeState {
+                    last: trade,
+                    day_volume: size,
+                    volume_date: trade_date,
+                }
+            }
+        };
+        trades.insert(state.last.instrument_id().clone(), state);
+    }
+
     /// The latest quote the fallback dataset holds (the store's *pre-live* answer).
     ///
     /// [`QuoteReader::read_quote`] with no `as_of` answers from the live map once a live write
@@ -87,5 +128,22 @@ impl QuoteReader for LiveQuoteStore {
             }
         }
         self.fallback.read_quote(id, as_of).await
+    }
+}
+
+#[async_trait]
+impl TradeReader for LiveQuoteStore {
+    async fn read_trade_snapshot(&self, id: &InstrumentId) -> PortResult<Option<TradeSnapshot>> {
+        Ok(self
+            .trades
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned()
+            .map(|state| TradeSnapshot {
+                instrument: id.clone(),
+                last: state.last,
+                day_volume: state.day_volume,
+            }))
     }
 }

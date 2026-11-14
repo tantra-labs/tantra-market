@@ -270,6 +270,24 @@ pub trait QuoteReader: Send + Sync {
     ) -> PortResult<Option<QuoteTick>>;
 }
 
+/// A live trade snapshot for one instrument: the latest print and the current session-day volume.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TradeSnapshot {
+    /// The instrument the snapshot belongs to.
+    pub instrument: InstrumentId,
+    /// The latest trade print.
+    pub last: TradeTick,
+    /// Sum of trade sizes printed so far on the current trading session day (f64 sizes, as stored).
+    pub day_volume: f64,
+}
+
+/// Serves the latest live trade print and session-day volume for an instrument.
+#[async_trait::async_trait]
+pub trait TradeReader: Send + Sync {
+    /// Reads the live trade snapshot for `id`.
+    async fn read_trade_snapshot(&self, id: &InstrumentId) -> PortResult<Option<TradeSnapshot>>;
+}
+
 /// Serves an order-book depth snapshot for an instrument.
 #[async_trait::async_trait]
 pub trait DepthReader: Send + Sync {

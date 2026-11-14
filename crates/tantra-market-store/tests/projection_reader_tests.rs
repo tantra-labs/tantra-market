@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use arrow::array::{Date32Array, Decimal128Array, Int32Array, StringArray};
+use arrow::array::{Date32Array, Decimal128Array, Int32Array, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use chrono::NaiveDate;
@@ -11,7 +11,10 @@ use parquet::arrow::arrow_writer::ArrowWriter;
 use rust_decimal::Decimal;
 use tantra_market_store::import::block_deals_projection::BlockDealsProjectionReader;
 use tantra_market_store::import::corporate_actions_projection::CorporateActionsProjectionReader;
+use tantra_market_store::import::delivery_projection::DeliveryProjectionReader;
+use tantra_market_store::import::economic_calendar_projection::EconomicCalendarProjectionReader;
 use tantra_market_store::import::filings_projection::FilingsProjectionReader;
+use tantra_market_store::import::institutional_flows_projection::InstitutionalFlowsProjectionReader;
 use tantra_market_store::import::news_projection::NewsProjectionReader;
 use tempfile::tempdir;
 
@@ -332,6 +335,249 @@ fn news_reader_decodes_rows_and_nullable_summary() {
 }
 
 #[test]
+fn institutional_flows_reader_decodes_rows_and_exact_decimals() {
+    let dir = tempdir().unwrap();
+    let flows_dir = dir.path().join("catalog").join("institutional_flows");
+    std::fs::create_dir_all(&flows_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("trade_date", DataType::Date32, false),
+        Field::new("participant", DataType::Utf8, false),
+        Field::new("segment", DataType::Utf8, false),
+        Field::new("gross_buy", DataType::Decimal128(18, 4), false),
+        Field::new("gross_sell", DataType::Decimal128(18, 4), false),
+        Field::new("net", DataType::Decimal128(18, 4), false),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let gross_buys =
+        Decimal128Array::from(vec![Some(12_345_600_000_i128), Some(8_000_000_000_i128)])
+            .with_precision_and_scale(18, 4)
+            .unwrap();
+    let gross_sells =
+        Decimal128Array::from(vec![Some(10_000_000_000_i128), Some(7_500_000_000_i128)])
+            .with_precision_and_scale(18, 4)
+            .unwrap();
+    let nets = Decimal128Array::from(vec![Some(2_345_600_000_i128), Some(500_000_000_i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![0i32, 1])),
+            Arc::new(StringArray::from(vec!["FII", "DII"])),
+            Arc::new(StringArray::from(vec!["cash", "cash"])),
+            Arc::new(gross_buys),
+            Arc::new(gross_sells),
+            Arc::new(nets),
+            Arc::new(StringArray::from(vec!["nse_bulk", "nse_bulk"])),
+        ],
+    )
+    .unwrap();
+
+    let path = flows_dir.join("2026-01-05.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = InstitutionalFlowsProjectionReader::new(dir.path())
+        .read()
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].trade_date,
+        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()
+    );
+    assert_eq!(rows[0].participant, "FII");
+    assert_eq!(rows[0].segment, "cash");
+    assert_eq!(
+        rows[0].gross_buy,
+        Decimal::try_from_i128_with_scale(12_345_600_000, 4).unwrap()
+    );
+    assert_eq!(
+        rows[0].gross_sell,
+        Decimal::try_from_i128_with_scale(10_000_000_000, 4).unwrap()
+    );
+    assert_eq!(
+        rows[0].net,
+        Decimal::try_from_i128_with_scale(2_345_600_000, 4).unwrap()
+    );
+    assert_eq!(rows[0].source, "nse_bulk");
+    assert_eq!(
+        rows[1].trade_date,
+        NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()
+    );
+    assert_eq!(rows[1].participant, "DII");
+    assert_eq!(
+        rows[1].gross_buy,
+        Decimal::try_from_i128_with_scale(8_000_000_000, 4).unwrap()
+    );
+    assert_eq!(
+        rows[1].net,
+        Decimal::try_from_i128_with_scale(500_000_000, 4).unwrap()
+    );
+}
+
+#[test]
+fn delivery_reader_decodes_rows_and_int64_quantities() {
+    let dir = tempdir().unwrap();
+    let delivery_dir = dir.path().join("catalog").join("delivery");
+    std::fs::create_dir_all(&delivery_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("trade_date", DataType::Date32, false),
+        Field::new("exchange", DataType::Utf8, false),
+        Field::new("instrument", DataType::Utf8, false),
+        Field::new("traded_quantity", DataType::Int64, false),
+        Field::new("deliverable_quantity", DataType::Int64, false),
+        Field::new("delivery_pct", DataType::Decimal128(18, 4), false),
+    ]));
+    let delivery_pcts = Decimal128Array::from(vec![Some(732_500_i128), Some(405_000_i128)])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![0i32, 1])),
+            Arc::new(StringArray::from(vec!["NSE", "NSE"])),
+            Arc::new(StringArray::from(vec!["NSE:RELIANCE-EQ", "NSE:TCS-EQ"])),
+            Arc::new(Int64Array::from(vec![1_234_567_i64, 890_123])),
+            Arc::new(Int64Array::from(vec![904_000_i64, 360_500])),
+            Arc::new(delivery_pcts),
+        ],
+    )
+    .unwrap();
+
+    let path = delivery_dir.join("2026-01-05.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = DeliveryProjectionReader::new(dir.path()).read().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].trade_date,
+        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()
+    );
+    assert_eq!(rows[0].exchange, "NSE");
+    assert_eq!(rows[0].instrument, "NSE:RELIANCE-EQ");
+    assert_eq!(rows[0].traded_quantity, 1_234_567);
+    assert_eq!(rows[0].deliverable_quantity, 904_000);
+    assert_eq!(
+        rows[0].delivery_pct,
+        Decimal::try_from_i128_with_scale(732_500, 4).unwrap()
+    );
+    assert_eq!(
+        rows[1].trade_date,
+        NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()
+    );
+    assert_eq!(rows[1].instrument, "NSE:TCS-EQ");
+    assert_eq!(rows[1].traded_quantity, 890_123);
+    assert_eq!(rows[1].deliverable_quantity, 360_500);
+    assert_eq!(
+        rows[1].delivery_pct,
+        Decimal::try_from_i128_with_scale(405_000, 4).unwrap()
+    );
+}
+
+#[test]
+fn economic_calendar_reader_decodes_rows_and_nullable_columns() {
+    let dir = tempdir().unwrap();
+    let calendar_dir = dir.path().join("catalog").join("economic_calendar");
+    std::fs::create_dir_all(&calendar_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("scheduled_date", DataType::Date32, false),
+        Field::new("scheduled_at", DataType::Utf8, false),
+        Field::new("instrument", DataType::Utf8, true),
+        Field::new("country", DataType::Utf8, false),
+        Field::new("currency", DataType::Utf8, false),
+        Field::new("category", DataType::Utf8, false),
+        Field::new("event_name", DataType::Utf8, false),
+        Field::new("impact_level", DataType::Utf8, false),
+        Field::new("actual", DataType::Decimal128(18, 4), true),
+        Field::new("forecast", DataType::Decimal128(18, 4), true),
+        Field::new("prior", DataType::Decimal128(18, 4), true),
+        Field::new("period_label", DataType::Utf8, true),
+    ]));
+    let actuals = Decimal128Array::from(vec![Some(3_000_000_i128), None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let forecasts = Decimal128Array::from(vec![Some(2_900_000_i128), None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let priors = Decimal128Array::from(vec![Some(2_750_000_i128), None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![0i32, 1])),
+            Arc::new(StringArray::from(vec![
+                "2026-01-05T08:30:00Z",
+                "2026-01-06T13:00:00Z",
+            ])),
+            Arc::new(StringArray::from(vec![Some("XAU-USD"), None])),
+            Arc::new(StringArray::from(vec!["US", "IN"])),
+            Arc::new(StringArray::from(vec!["USD", "INR"])),
+            Arc::new(StringArray::from(vec!["Inflation", "GDP"])),
+            Arc::new(StringArray::from(vec!["CPI m/m", "GDP y/y"])),
+            Arc::new(StringArray::from(vec!["high", "medium"])),
+            Arc::new(actuals),
+            Arc::new(forecasts),
+            Arc::new(priors),
+            Arc::new(StringArray::from(vec![Some("Q4"), None])),
+        ],
+    )
+    .unwrap();
+
+    let path = calendar_dir.join("2026-01-05.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = EconomicCalendarProjectionReader::new(dir.path())
+        .read()
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].scheduled_date,
+        NaiveDate::from_ymd_opt(1970, 1, 1).unwrap()
+    );
+    assert_eq!(rows[0].scheduled_at, "2026-01-05T08:30:00Z");
+    assert_eq!(rows[0].instrument.as_deref(), Some("XAU-USD"));
+    assert_eq!(rows[0].country, "US");
+    assert_eq!(rows[0].currency, "USD");
+    assert_eq!(rows[0].category, "Inflation");
+    assert_eq!(rows[0].event_name, "CPI m/m");
+    assert_eq!(rows[0].impact_level, "high");
+    assert_eq!(
+        rows[0].actual,
+        Some(Decimal::try_from_i128_with_scale(3_000_000, 4).unwrap())
+    );
+    assert_eq!(
+        rows[0].forecast,
+        Some(Decimal::try_from_i128_with_scale(2_900_000, 4).unwrap())
+    );
+    assert_eq!(
+        rows[0].prior,
+        Some(Decimal::try_from_i128_with_scale(2_750_000, 4).unwrap())
+    );
+    assert_eq!(rows[0].period_label.as_deref(), Some("Q4"));
+    assert_eq!(
+        rows[1].scheduled_date,
+        NaiveDate::from_ymd_opt(1970, 1, 2).unwrap()
+    );
+    assert_eq!(rows[1].instrument, None);
+    assert_eq!(rows[1].actual, None);
+    assert_eq!(rows[1].forecast, None);
+    assert_eq!(rows[1].prior, None);
+    assert_eq!(rows[1].period_label, None);
+}
+
+#[test]
 fn readers_return_empty_for_a_missing_catalog_directory() {
     let dir = tempdir().unwrap();
     assert!(
@@ -348,6 +594,24 @@ fn readers_return_empty_for_a_missing_catalog_directory() {
     );
     assert!(
         BlockDealsProjectionReader::new(dir.path())
+            .read()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        InstitutionalFlowsProjectionReader::new(dir.path())
+            .read()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        DeliveryProjectionReader::new(dir.path())
+            .read()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        EconomicCalendarProjectionReader::new(dir.path())
             .read()
             .unwrap()
             .is_empty()

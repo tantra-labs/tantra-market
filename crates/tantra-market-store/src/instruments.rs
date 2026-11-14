@@ -14,11 +14,13 @@
 //!
 //! # Snapshot columns
 //!
-//! `symbol`, `exchange`, `kind`, `currency`, `expiry`, `option_type` and
-//! `underlying` are UTF8; `lot_size`, `tick_size`, `freeze_qty` and `strike`
-//! are read as `f64` and accept any numeric Arrow type (real feeds may deliver
-//! integers as doubles). `expiry`, `strike`, `option_type` and `underlying` are
-//! nullable; `expiry` is a `YYYY-MM-DD` string.
+//! `symbol`, `exchange`, `kind`, `currency`, `expiry`, `option_type`,
+//! `underlying` and `display_name` are UTF8; `lot_size`, `tick_size`,
+//! `freeze_qty` and `strike` are read as `f64` and accept any numeric Arrow
+//! type (real feeds may deliver integers as doubles). `expiry`, `strike`,
+//! `option_type`, `underlying` and `display_name` are nullable; `expiry` is a
+//! `YYYY-MM-DD` string. `display_name` is a recent addition: snapshots written
+//! before it existed still load, with every row's display name `None`.
 //!
 //! The reader is `Send + Sync` and does all I/O once, at [`open`](CatalogInstrumentMaster::open);
 //! every answer is a pure function of the loaded snapshots.
@@ -57,6 +59,7 @@ pub fn snapshot_schema() -> Schema {
         Field::new("strike", DataType::Float64, true),
         Field::new("option_type", DataType::Utf8, true),
         Field::new("underlying", DataType::Utf8, true),
+        Field::new("display_name", DataType::Utf8, true),
     ])
 }
 
@@ -328,10 +331,23 @@ fn append_batch(
     let strikes = downcast_f64(number("strike")?, "strike");
     let option_types = downcast_string(utf8("option_type")?, "option_type");
     let underlyings = downcast_string(utf8("underlying")?, "underlying");
+    // `display_name` is a recent snapshot addition; older snapshots lack the
+    // column entirely, in which case every row has no display name.
+    let display_names = match schema.index_of("display_name") {
+        Ok(index) => Some(downcast_string(
+            as_utf8(batch.column(index), "display_name")?,
+            "display_name",
+        )),
+        Err(_) => None,
+    };
 
     for row in 0..batch.num_rows() {
         let expiry = optional(&expiries, row, |value| parse_date(value, "expiry"))?;
         let option_type = optional(&option_types, row, parse_option_type)?;
+        let display_name = display_names
+            .as_ref()
+            .filter(|names| !names.is_null(row) && !names.value(row).is_empty())
+            .map(|names| names.value(row).to_string());
         let instrument = Instrument::new(
             InstrumentId::new(parse_exchange(exchanges.value(row))?, symbols.value(row)),
             parse_kind(kinds.value(row))?,
@@ -345,6 +361,10 @@ fn append_batch(
             option_type,
             optional_string(&underlyings, row),
         );
+        let instrument = match display_name {
+            Some(name) => instrument.with_display_name(name),
+            None => instrument,
+        };
         records.push(DatedInstrument {
             instrument,
             freeze_qty: freeze_qtys.value(row),

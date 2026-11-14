@@ -45,8 +45,18 @@ pub use import::block_deals_projection::{
 pub use import::corporate_actions_projection::{
     CorporateActionProjection, CorporateActionsProjectionError, CorporateActionsProjectionReader,
 };
+pub use import::delivery_projection::{
+    DeliveryProjection, DeliveryProjectionError, DeliveryProjectionReader,
+};
+pub use import::economic_calendar_projection::{
+    EconomicCalendarProjection, EconomicCalendarProjectionError, EconomicCalendarProjectionReader,
+};
 pub use import::filings_projection::{
     FilingProjection, FilingsProjectionError, FilingsProjectionReader,
+};
+pub use import::institutional_flows_projection::{
+    InstitutionalFlowProjection, InstitutionalFlowsProjectionError,
+    InstitutionalFlowsProjectionReader,
 };
 pub use import::news_projection::{NewsProjection, NewsProjectionError, NewsProjectionReader};
 pub use import::parquet_source::{ParquetBarSource, ParquetError};

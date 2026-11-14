@@ -71,6 +71,7 @@ fn write_catalog(root: &Path, date: &str, rows: &[OptRow]) {
         numbers(rows.iter().map(|r| Some(r.strike)).collect()),
         strings(rows.iter().map(|r| Some(r.option_type)).collect()),
         strings(rows.iter().map(|r| Some(r.underlying)).collect()),
+        strings(rows.iter().map(|_| None).collect()),
     ];
     let schema = Arc::new(snapshot_schema());
     let batch = RecordBatch::try_new(schema.clone(), columns).unwrap();

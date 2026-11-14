@@ -484,6 +484,10 @@ pub struct Instrument {
     strike: Option<f64>,
     option_type: Option<tantra_core::OptionType>,
     underlying: Option<String>,
+    /// Optional human-readable display name; absent in snapshots written
+    /// before the column existed, so it defaults to `None` on deserialize.
+    #[serde(default)]
+    display_name: Option<String>,
 }
 
 impl Instrument {
@@ -505,6 +509,7 @@ impl Instrument {
             strike: None,
             option_type: None,
             underlying: None,
+            display_name: None,
         }
     }
 
@@ -521,6 +526,13 @@ impl Instrument {
         self.strike = strike;
         self.option_type = option_type;
         self.underlying = underlying;
+        self
+    }
+
+    /// Sets the human-readable display name, returning `self`.
+    #[must_use]
+    pub fn with_display_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
         self
     }
 
@@ -567,5 +579,10 @@ impl Instrument {
     /// Underlying instrument symbol, for derivatives.
     pub fn underlying(&self) -> Option<&str> {
         self.underlying.as_deref()
+    }
+
+    /// The human-readable display name, when the catalog supplies one.
+    pub fn display_name(&self) -> Option<&str> {
+        self.display_name.as_deref()
     }
 }
