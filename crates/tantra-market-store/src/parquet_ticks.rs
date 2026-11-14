@@ -314,10 +314,7 @@ pub fn write_tick_file(
         std::sync::Arc::new(StringArray::from_iter(values))
     };
     let null_depth_jsons = |n: usize| -> ArrayRef {
-        std::sync::Arc::new(StringArray::from_iter(std::iter::repeat_n(
-            None::<&str>,
-            n,
-        )))
+        std::sync::Arc::new(StringArray::from_iter(std::iter::repeat_n(None::<&str>, n)))
     };
 
     let n = kinds.len();

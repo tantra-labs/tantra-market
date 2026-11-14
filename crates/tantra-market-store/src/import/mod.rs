@@ -5,6 +5,7 @@ pub mod corporate_actions_projection;
 pub mod delivery_projection;
 pub mod economic_calendar_projection;
 pub mod filings_projection;
+pub mod fundamentals_projection;
 pub mod institutional_flows_projection;
 pub mod news_projection;
 pub mod parquet_source;

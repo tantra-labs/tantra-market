@@ -54,6 +54,10 @@ pub use import::economic_calendar_projection::{
 pub use import::filings_projection::{
     FilingProjection, FilingsProjectionError, FilingsProjectionReader,
 };
+pub use import::fundamentals_projection::{
+    FundamentalRatiosProjection, FundamentalStatementProjection, FundamentalsProjectionError,
+    FundamentalsProjectionReader,
+};
 pub use import::institutional_flows_projection::{
     InstitutionalFlowProjection, InstitutionalFlowsProjectionError,
     InstitutionalFlowsProjectionReader,

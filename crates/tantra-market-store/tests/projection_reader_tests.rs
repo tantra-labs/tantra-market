@@ -14,6 +14,7 @@ use tantra_market_store::import::corporate_actions_projection::CorporateActionsP
 use tantra_market_store::import::delivery_projection::DeliveryProjectionReader;
 use tantra_market_store::import::economic_calendar_projection::EconomicCalendarProjectionReader;
 use tantra_market_store::import::filings_projection::FilingsProjectionReader;
+use tantra_market_store::import::fundamentals_projection::FundamentalsProjectionReader;
 use tantra_market_store::import::institutional_flows_projection::InstitutionalFlowsProjectionReader;
 use tantra_market_store::import::news_projection::NewsProjectionReader;
 use tempfile::tempdir;
@@ -622,4 +623,166 @@ fn readers_return_empty_for_a_missing_catalog_directory() {
             .unwrap()
             .is_empty()
     );
+    assert!(
+        FundamentalsProjectionReader::new(dir.path())
+            .read_statements()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        FundamentalsProjectionReader::new(dir.path())
+            .read_ratios()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn fundamentals_reader_decodes_statements_and_exact_decimals() {
+    let dir = tempdir().unwrap();
+    let fundamentals_dir = dir.path().join("catalog").join("fundamentals");
+    std::fs::create_dir_all(&fundamentals_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("filing_date", DataType::Date32, false),
+        Field::new("instrument", DataType::Utf8, false),
+        Field::new("statement_type", DataType::Utf8, false),
+        Field::new("period_type", DataType::Utf8, false),
+        Field::new("period_end_date", DataType::Date32, false),
+        Field::new("line_item", DataType::Utf8, false),
+        Field::new("value", DataType::Decimal128(18, 4), false),
+        Field::new("currency", DataType::Utf8, false),
+    ]));
+    // 2026-03-31 and 2026-11-14 as Unix-epoch day counts, computed not hardcoded.
+    let epoch_days = |y: i32, m: u32, d: u32| -> i32 {
+        (NaiveDate::from_ymd_opt(y, m, d).unwrap() - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .num_days() as i32
+    };
+    let values = Decimal128Array::from(vec![1_057_219_000_000_000i128, 80_775_000_000_000])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 14); 2])),
+            Arc::new(StringArray::from(vec![
+                "NSE:RELIANCE-EQ",
+                "NSE:RELIANCE-EQ",
+            ])),
+            Arc::new(StringArray::from(vec![
+                "income_statement",
+                "income_statement",
+            ])),
+            Arc::new(StringArray::from(vec!["annual", "annual"])),
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 3, 31); 2])),
+            Arc::new(StringArray::from(vec!["total_revenue", "net_income"])),
+            Arc::new(values),
+            Arc::new(StringArray::from(vec!["INR", "INR"])),
+        ],
+    )
+    .unwrap();
+
+    let path = fundamentals_dir.join("2026-11-14.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = FundamentalsProjectionReader::new(dir.path())
+        .read_statements()
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].filing_date,
+        NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
+    );
+    assert_eq!(rows[0].instrument, "NSE:RELIANCE-EQ");
+    assert_eq!(rows[0].statement_type, "income_statement");
+    assert_eq!(rows[0].period_type, "annual");
+    assert_eq!(
+        rows[0].period_end_date,
+        NaiveDate::from_ymd_opt(2026, 3, 31).unwrap()
+    );
+    assert_eq!(rows[0].line_item, "total_revenue");
+    assert_eq!(
+        rows[0].value,
+        Decimal::try_from_i128_with_scale(1_057_219_000_000_000, 4).unwrap()
+    );
+    assert_eq!(rows[1].line_item, "net_income");
+}
+
+#[test]
+fn fundamentals_reader_decodes_ratios_with_nullable_decimal_columns() {
+    let dir = tempdir().unwrap();
+    let ratios_dir = dir.path().join("catalog").join("fundamental_ratios");
+    std::fs::create_dir_all(&ratios_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("as_of_date", DataType::Date32, false),
+        Field::new("instrument", DataType::Utf8, false),
+        Field::new("pe", DataType::Decimal128(18, 4), true),
+        Field::new("pb", DataType::Decimal128(18, 4), true),
+        Field::new("ev_to_ebitda", DataType::Decimal128(18, 4), true),
+        Field::new("dividend_yield", DataType::Decimal128(18, 4), true),
+        Field::new("roce", DataType::Decimal128(18, 4), true),
+        Field::new("roe", DataType::Decimal128(18, 4), true),
+        Field::new("debt_to_equity", DataType::Decimal128(18, 4), true),
+        Field::new("interest_coverage", DataType::Decimal128(18, 4), true),
+        Field::new("source", DataType::Utf8, false),
+    ]));
+    let epoch_days = |y: i32, m: u32, d: u32| -> i32 {
+        (NaiveDate::from_ymd_opt(y, m, d).unwrap() - NaiveDate::from_ymd_opt(1970, 1, 1).unwrap())
+            .num_days() as i32
+    };
+    let pe = Decimal128Array::from(vec![Some(22_078_114i128), None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let debt_equity = Decimal128Array::from(vec![Some(440_251i128), None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let nulls = Decimal128Array::from(vec![None, None])
+        .with_precision_and_scale(18, 4)
+        .unwrap();
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![epoch_days(2026, 11, 14); 2])),
+            Arc::new(StringArray::from(vec!["NSE:RELIANCE-EQ", "NSE:TCS"])),
+            Arc::new(pe),
+            Arc::new(nulls.clone()),
+            Arc::new(nulls.clone()),
+            Arc::new(nulls.clone()),
+            Arc::new(nulls.clone()),
+            Arc::new(nulls.clone()),
+            Arc::new(debt_equity),
+            Arc::new(nulls.clone()),
+            Arc::new(StringArray::from(vec!["yfinance", "yfinance"])),
+        ],
+    )
+    .unwrap();
+
+    let path = ratios_dir.join("2026-11-14.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = FundamentalsProjectionReader::new(dir.path())
+        .read_ratios()
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].as_of_date,
+        NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
+    );
+    assert_eq!(
+        rows[0].pe,
+        Some(Decimal::try_from_i128_with_scale(22_078_114, 4).unwrap())
+    );
+    assert_eq!(
+        rows[0].debt_to_equity,
+        Some(Decimal::try_from_i128_with_scale(440_251, 4).unwrap())
+    );
+    assert_eq!(rows[0].pb, None);
+    assert_eq!(rows[1].pe, None);
 }
