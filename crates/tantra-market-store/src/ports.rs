@@ -217,16 +217,29 @@ pub enum MarketEvent {
     },
 }
 
-/// An empty order-book snapshot shape for sources that hold no book (a bar
-/// or last-price-only store always answers [`PortError::Unsupported`]
-/// instead of constructing one of these, so the exact shape here matters
-/// only to future depth-capable sources).
-#[derive(Debug, Clone, PartialEq, Default)]
+/// An order-book depth snapshot: when it was taken plus best-first bid and ask levels.
+///
+/// Prices and sizes are exact domain decimals (`Price`/`Quantity` — the zero-floats
+/// policy); a source that holds no book answers [`PortError::Unsupported`] instead of
+/// an empty snapshot.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DepthSnapshot {
-    /// Bid levels, best first, as (price, size) pairs.
-    pub bids: Vec<(f64, f64)>,
-    /// Ask levels, best first, as (price, size) pairs.
-    pub asks: Vec<(f64, f64)>,
+    /// When the snapshot was taken.
+    pub as_of: UnixNanos,
+    /// Bid levels, best (highest price) first, as (price, size) pairs.
+    pub bids: Vec<(Price, Quantity)>,
+    /// Ask levels, best (lowest price) first, as (price, size) pairs.
+    pub asks: Vec<(Price, Quantity)>,
+}
+
+impl Default for DepthSnapshot {
+    fn default() -> Self {
+        Self {
+            as_of: UnixNanos::from_u64(0),
+            bids: Vec::new(),
+            asks: Vec::new(),
+        }
+    }
 }
 
 /// An instrument's reference data as of a given effective date range.

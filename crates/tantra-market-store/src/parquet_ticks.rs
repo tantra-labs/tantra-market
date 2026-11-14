@@ -32,9 +32,10 @@ use arrow::array::{Array, ArrayRef, Float64Array, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
-use tantra_core::{Exchange, InstrumentId};
+use rust_decimal::Decimal;
+use tantra_core::{Exchange, InstrumentId, Price, Quantity};
 
-use crate::ports::{PortError, PortResult, TickReader, TickRequest};
+use crate::ports::{DepthReader, DepthSnapshot, PortError, PortResult, TickReader, TickRequest};
 use crate::wire::{AggressorSide, QuoteTick, TradeId, TradeTick, UnixNanos};
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -59,6 +60,7 @@ pub fn tick_schema() -> Schema {
         Field::new("size", DataType::Float64, true),
         Field::new("aggressor", DataType::Utf8, true),
         Field::new("trade_id", DataType::Utf8, true),
+        Field::new("depth_json", DataType::Utf8, true),
     ])
 }
 
@@ -103,11 +105,23 @@ impl From<TickStoreError> for PortError {
     }
 }
 
+/// One persisted order-book depth snapshot (a `kind = "depth"` tick row).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DepthTick {
+    /// Instrument the book belongs to.
+    pub instrument: InstrumentId,
+    /// When the snapshot was taken.
+    pub ts_event: UnixNanos,
+    /// The order-book snapshot.
+    pub snapshot: DepthSnapshot,
+}
+
 /// An in-memory view of a directory of tick Parquet files (ADR 0030).
 #[derive(Clone, Debug, Default)]
 pub struct ParquetTickStore {
     quotes: Vec<QuoteTick>,
     trades: Vec<TradeTick>,
+    depth: Vec<DepthTick>,
 }
 
 impl ParquetTickStore {
@@ -129,17 +143,23 @@ impl ParquetTickStore {
         paths.sort();
         let mut quotes = Vec::new();
         let mut trades = Vec::new();
+        let mut depth = Vec::new();
         for path in &paths {
-            read_file(path, &mut quotes, &mut trades)?;
+            read_file(path, &mut quotes, &mut trades, &mut depth)?;
         }
         quotes.sort_by_key(QuoteTick::ts_event);
         trades.sort_by_key(TradeTick::ts_event);
-        Ok(Self { quotes, trades })
+        depth.sort_by_key(|d| d.ts_event);
+        Ok(Self {
+            quotes,
+            trades,
+            depth,
+        })
     }
 
-    /// The quotes and trades loaded, for tests and inspection.
-    pub fn len(&self) -> (usize, usize) {
-        (self.quotes.len(), self.trades.len())
+    /// The quotes, trades and depth snapshots loaded, for tests and inspection.
+    pub fn len(&self) -> (usize, usize, usize) {
+        (self.quotes.len(), self.trades.len(), self.depth.len())
     }
 
     /// Borrowed quotes and trades, for the canonical bridge in [`crate::canonical`].
@@ -149,7 +169,7 @@ impl ParquetTickStore {
 
     /// Returns `true` when the store holds no ticks at all.
     pub fn is_empty(&self) -> bool {
-        self.quotes.is_empty() && self.trades.is_empty()
+        self.quotes.is_empty() && self.trades.is_empty() && self.depth.is_empty()
     }
 
     fn check_held(&self) -> PortResult<()> {
@@ -190,6 +210,34 @@ impl TickReader for ParquetTickStore {
             })
             .cloned()
             .collect())
+    }
+}
+
+/// The latest persisted order-book snapshot for an instrument, truncated to `levels`.
+///
+/// The parquet lakehouse's depth ticks (written by [`write_depth_file`] from live broker
+/// full-mode `Tick::Depth` frames — zerodha's ten entries, dhan's five) are the real L2
+/// source this store serves (closes `tantra-market/docs/gaps/0006`).
+#[async_trait]
+impl DepthReader for ParquetTickStore {
+    async fn read_depth(&self, id: &InstrumentId, levels: usize) -> PortResult<DepthSnapshot> {
+        if self.depth.is_empty() {
+            return Err(PortError::Unsupported(
+                "this store holds no depth ticks".into(),
+            ));
+        }
+        let latest = self.depth.iter().rev().find(|tick| tick.instrument == *id);
+        match latest {
+            Some(tick) => {
+                let mut snapshot = tick.snapshot.clone();
+                snapshot.bids.truncate(levels);
+                snapshot.asks.truncate(levels);
+                Ok(snapshot)
+            }
+            None => Err(PortError::Unsupported(format!(
+                "{id} has no order-book depth in this store"
+            ))),
+        }
     }
 }
 
@@ -265,7 +313,14 @@ pub fn write_tick_file(
     let opt_owned = |values: Vec<Option<String>>| -> ArrayRef {
         std::sync::Arc::new(StringArray::from_iter(values))
     };
+    let null_depth_jsons = |n: usize| -> ArrayRef {
+        std::sync::Arc::new(StringArray::from_iter(std::iter::repeat_n(
+            None::<&str>,
+            n,
+        )))
+    };
 
+    let n = kinds.len();
     let columns: Vec<ArrayRef> = vec![
         strings(kinds),
         owned_strings(symbols),
@@ -280,6 +335,152 @@ pub fn write_tick_file(
         floats(sizes),
         opt_owned(aggressors),
         opt_strings(trade_ids),
+        null_depth_jsons(n),
+    ];
+    let schema = std::sync::Arc::new(tick_schema());
+    let batch = RecordBatch::try_new(schema.clone(), columns)?;
+    let mut writer = ArrowWriter::try_new(File::create(path)?, schema, None)?;
+    writer.write(&batch)?;
+    writer.close()?;
+    Ok(())
+}
+
+/// Serializes an order-book snapshot to the `depth_json` tick column.
+///
+/// Prices and sizes are string-encoded exact decimals, so no `f64` crosses the
+/// parquet boundary (the zero-floats policy).
+fn depth_json(snapshot: &DepthSnapshot) -> String {
+    let level = |levels: &[(Price, Quantity)]| -> Vec<serde_json::Value> {
+        levels
+            .iter()
+            .map(|(price, qty)| {
+                serde_json::json!([price.value().to_string(), qty.value().to_string()])
+            })
+            .collect()
+    };
+    serde_json::json!({
+        "bids": level(&snapshot.bids),
+        "asks": level(&snapshot.asks),
+    })
+    .to_string()
+}
+
+/// Parses a `depth_json` tick column value back into an exact-decimal snapshot.
+fn parse_depth_json(raw: &str, file: &str, row: usize) -> Result<DepthSnapshot, TickStoreError> {
+    let bad = |message: String| TickStoreError::BadRow {
+        file: file.to_string(),
+        row,
+        message,
+    };
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|e| bad(format!("invalid depth_json: {e}")))?;
+    let level =
+        |side: &serde_json::Value, name: &str| -> Result<Vec<(Price, Quantity)>, TickStoreError> {
+            let arr = side
+                .as_array()
+                .ok_or_else(|| bad(format!("depth_json {name} is not an array")))?;
+            let mut out = Vec::with_capacity(arr.len());
+            for entry in arr {
+                let pair = entry
+                    .as_array()
+                    .and_then(|p| (p.len() == 2).then_some(p))
+                    .ok_or_else(|| {
+                        bad(format!(
+                            "depth_json {name} level is not a [price, qty] pair"
+                        ))
+                    })?;
+                let price = Decimal::from_str(
+                    pair[0]
+                        .as_str()
+                        .ok_or_else(|| bad("depth_json price is not a string".into()))?,
+                )
+                .map_err(|e| bad(format!("depth_json price parse: {e}")))?;
+                let qty = Decimal::from_str(
+                    pair[1]
+                        .as_str()
+                        .ok_or_else(|| bad("depth_json qty is not a string".into()))?,
+                )
+                .map_err(|e| bad(format!("depth_json qty parse: {e}")))?;
+                out.push((Price::new(price), Quantity::new(qty)));
+            }
+            Ok(out)
+        };
+    let bids = level(
+        value
+            .get("bids")
+            .ok_or_else(|| bad("depth_json has no bids".into()))?,
+        "bids",
+    )?;
+    let asks = level(
+        value
+            .get("asks")
+            .ok_or_else(|| bad("depth_json has no asks".into()))?,
+        "asks",
+    )?;
+    Ok(DepthSnapshot {
+        as_of: UnixNanos::from_u64(0),
+        bids,
+        asks,
+    })
+}
+
+/// Writes `depth` order-book snapshots, in the order given, as one tick file at `path`.
+///
+/// Like [`write_tick_file`], this creates the parent directory and overwrites an existing
+/// file; the reader sorts by `ts_event`, so the order here only decides ties.
+pub fn write_depth_file(path: &Path, depth: &[DepthTick]) -> Result<(), TickStoreError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut kinds = Vec::with_capacity(depth.len());
+    let mut symbols = Vec::with_capacity(depth.len());
+    let mut exchanges = Vec::with_capacity(depth.len());
+    let mut ts_events = Vec::with_capacity(depth.len());
+    let mut ts_inits = Vec::with_capacity(depth.len());
+    let mut depth_jsons = Vec::with_capacity(depth.len());
+    for tick in depth {
+        kinds.push("depth");
+        symbols.push(tick.instrument.symbol.clone());
+        exchanges.push(exchange_str(tick.instrument.exchange));
+        ts_events.push(tick.ts_event.as_u64() as i64);
+        ts_inits.push(Some(tick.ts_event.as_u64() as i64));
+        depth_jsons.push(Some(depth_json(&tick.snapshot)));
+    }
+
+    let ints = |values: Vec<i64>| -> ArrayRef { std::sync::Arc::new(Int64Array::from(values)) };
+    let opt_ints =
+        |values: Vec<Option<i64>>| -> ArrayRef { std::sync::Arc::new(Int64Array::from(values)) };
+    let opt_owned = |values: Vec<Option<String>>| -> ArrayRef {
+        std::sync::Arc::new(StringArray::from_iter(values))
+    };
+    let strings =
+        |values: Vec<&str>| -> ArrayRef { std::sync::Arc::new(StringArray::from(values)) };
+
+    let empty_floats: Vec<Option<f64>> = vec![None; depth.len()];
+    let floats =
+        |values: Vec<Option<f64>>| -> ArrayRef { std::sync::Arc::new(Float64Array::from(values)) };
+    let null_strings = || -> ArrayRef {
+        std::sync::Arc::new(StringArray::from_iter(std::iter::repeat_n(
+            None::<&str>,
+            depth.len(),
+        )))
+    };
+
+    let columns: Vec<ArrayRef> = vec![
+        strings(kinds),
+        std::sync::Arc::new(StringArray::from_iter_values(symbols)),
+        strings(exchanges),
+        ints(ts_events),
+        opt_ints(ts_inits),
+        floats(empty_floats.clone()),
+        floats(empty_floats.clone()),
+        floats(empty_floats.clone()),
+        floats(empty_floats.clone()),
+        floats(empty_floats.clone()),
+        floats(empty_floats.clone()),
+        null_strings(),
+        null_strings(),
+        opt_owned(depth_jsons),
     ];
     let schema = std::sync::Arc::new(tick_schema());
     let batch = RecordBatch::try_new(schema.clone(), columns)?;
@@ -322,6 +523,7 @@ fn read_file(
     path: &Path,
     quotes: &mut Vec<QuoteTick>,
     trades: &mut Vec<TradeTick>,
+    depth: &mut Vec<DepthTick>,
 ) -> Result<(), TickStoreError> {
     let file = File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
@@ -331,7 +533,7 @@ fn read_file(
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     for batch in reader {
-        append_batch(&batch?, &name, quotes, trades)?;
+        append_batch(&batch?, &name, quotes, trades, depth)?;
     }
     Ok(())
 }
@@ -341,6 +543,7 @@ fn append_batch(
     file: &str,
     quotes: &mut Vec<QuoteTick>,
     trades: &mut Vec<TradeTick>,
+    depth: &mut Vec<DepthTick>,
 ) -> Result<(), TickStoreError> {
     let schema = batch.schema();
     let column = |name: &'static str| -> Result<ArrayRef, TickStoreError> {
@@ -405,6 +608,14 @@ fn append_batch(
     let sizes = floats("size")?;
     let aggressors = utf8("aggressor")?;
     let trade_ids = utf8("trade_id")?;
+
+    // The `depth_json` column only exists in files written by [`write_depth_file`]; older
+    // quote/trade-only files lack it, so its absence is tolerated (a `depth` row in such a
+    // file is an error, caught per-row below).
+    let depth_jsons = match batch.schema().index_of("depth_json") {
+        Ok(_) => Some(utf8("depth_json")?),
+        Err(_) => None,
+    };
 
     let bad = |row: usize, message: String| TickStoreError::BadRow {
         file: file.to_string(),
@@ -482,6 +693,26 @@ fn append_batch(
                 let tick: TradeTick = serde_json::from_value(value)
                     .map_err(|e| bad(row, format!("invalid trade: {e}")))?;
                 trades.push(tick);
+            }
+            "depth" => {
+                let depth_jsons = depth_jsons.as_ref().ok_or_else(|| {
+                    bad(
+                        row,
+                        "depth_json column missing on a depth tick row".to_string(),
+                    )
+                })?;
+                let raw = if depth_jsons.is_null(row) {
+                    return Err(bad(row, "depth_json is null on a depth tick".to_string()));
+                } else {
+                    depth_jsons.value(row)
+                };
+                let mut snapshot = parse_depth_json(raw, file, row)?;
+                snapshot.as_of = ts_event;
+                depth.push(DepthTick {
+                    instrument,
+                    ts_event,
+                    snapshot,
+                });
             }
             other => return Err(bad(row, format!("unknown kind {other:?}"))),
         }

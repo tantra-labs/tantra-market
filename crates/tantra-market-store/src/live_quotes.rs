@@ -1,11 +1,12 @@
 //! A writable latest-quote store layered over a [`DatasetReader`].
 //!
 //! [`LiveQuoteStore`] is a [`QuoteReader`] whose "latest" answer can be refreshed from a live
-//! feed ([`LiveQuoteStore::put_quote`], [`LiveQuoteStore::put_bar`]), and a [`TradeReader`]
+//! feed ([`LiveQuoteStore::put_quote`], [`LiveQuoteStore::put_bar`]), a [`TradeReader`]
 //! whose latest trade print and session-day volume can be refreshed from a live trade feed
-//! ([`LiveQuoteStore::put_trade`]). A query with `as_of` keeps replay semantics and is answered
-//! by the fallback dataset; only the latest-quote query (`as_of = None`) sees live data, and
-//! falls back to the dataset until the first write.
+//! ([`LiveQuoteStore::put_trade`]), and a [`DepthReader`] whose order-book snapshot can be
+//! refreshed from a live L2 depth feed ([`LiveQuoteStore::put_depth`]). A query with `as_of`
+//! keeps replay semantics and is answered by the fallback dataset; only the latest-quote
+//! query (`as_of = None`) sees live data, and falls back to the dataset until the first write.
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -15,7 +16,9 @@ use chrono::NaiveDate;
 use tantra_core::InstrumentId;
 
 use crate::DatasetReader;
-use crate::ports::{PortResult, QuoteReader, TradeReader, TradeSnapshot};
+use crate::ports::{
+    DepthReader, DepthSnapshot, PortError, PortResult, QuoteReader, TradeReader, TradeSnapshot,
+};
 use crate::wire::{Bar, QuoteTick, TradeTick, UnixNanos};
 
 /// The live state kept per instrument: the latest trade and the day-volume accumulator.
@@ -31,6 +34,7 @@ struct LiveTradeState {
 pub struct LiveQuoteStore {
     live: RwLock<HashMap<InstrumentId, QuoteTick>>,
     trades: RwLock<HashMap<InstrumentId, LiveTradeState>>,
+    depth: RwLock<HashMap<InstrumentId, DepthSnapshot>>,
     fallback: Arc<DatasetReader>,
 }
 
@@ -40,6 +44,7 @@ impl LiveQuoteStore {
         Self {
             live: RwLock::new(HashMap::new()),
             trades: RwLock::new(HashMap::new()),
+            depth: RwLock::new(HashMap::new()),
             fallback,
         }
     }
@@ -99,6 +104,17 @@ impl LiveQuoteStore {
         trades.insert(state.last.instrument_id().clone(), state);
     }
 
+    /// Records `snapshot` as the live order-book depth for `instrument`, replacing any
+    /// previously held book (closes the `DepthReader` side of `tantra-runtime/docs/gaps/0007`
+    /// item 10 / `tantra-market/docs/gaps/0006`). Prices and sizes are exact `Price`/`Quantity`
+    /// decimals — never fabricated, and only as real as the feed that wrote them.
+    pub fn put_depth(&self, instrument: InstrumentId, snapshot: DepthSnapshot) {
+        self.depth
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(instrument, snapshot);
+    }
+
     /// The latest quote the fallback dataset holds (the store's *pre-live* answer).
     ///
     /// [`QuoteReader::read_quote`] with no `as_of` answers from the live map once a live write
@@ -145,5 +161,27 @@ impl TradeReader for LiveQuoteStore {
                 last: state.last,
                 day_volume: state.day_volume,
             }))
+    }
+}
+
+#[async_trait]
+impl DepthReader for LiveQuoteStore {
+    async fn read_depth(&self, id: &InstrumentId, levels: usize) -> PortResult<DepthSnapshot> {
+        let mut book = self
+            .depth
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(id)
+            .cloned();
+        match book.as_mut() {
+            Some(book) => {
+                book.bids.truncate(levels);
+                book.asks.truncate(levels);
+                Ok(book.clone())
+            }
+            None => Err(PortError::Unsupported(format!(
+                "{id} has no live order-book depth yet (see tantra-market/docs/gaps/0006)"
+            ))),
+        }
     }
 }

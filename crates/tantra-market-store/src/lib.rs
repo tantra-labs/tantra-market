@@ -67,7 +67,10 @@ pub use open_interest::{
     InMemoryOpenInterestStore, OI_DIR, OiStoreError, OpenInterestSnapshot, OpenInterestStore,
     ParquetOpenInterestStore, oi_schema, write_oi_file,
 };
-pub use parquet_ticks::{ParquetTickStore, TICK_DIR, TickStoreError, tick_schema, write_tick_file};
+pub use parquet_ticks::{
+    DepthTick, ParquetTickStore, TICK_DIR, TickStoreError, tick_schema, write_depth_file,
+    write_tick_file,
+};
 pub use ports::{ChainContract, ChainReader};
 pub use reader::{DatasetReader, ReaderError};
 pub use recorder::{RecorderConfig, RecorderStats, TickRecorder};
