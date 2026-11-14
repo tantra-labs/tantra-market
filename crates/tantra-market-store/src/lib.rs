@@ -39,6 +39,12 @@ pub use dataset::{
 pub use export::{
     CsvReportWriter, ExportError, JsonReportWriter, MarkdownReportWriter, ReportWriter,
 };
+pub use import::corporate_actions_projection::{
+    CorporateActionProjection, CorporateActionsProjectionError, CorporateActionsProjectionReader,
+};
+pub use import::filings_projection::{
+    FilingProjection, FilingsProjectionError, FilingsProjectionReader,
+};
 pub use import::parquet_source::{ParquetBarSource, ParquetError};
 pub use instruments::{CatalogError, CatalogInstrumentMaster, snapshot_schema};
 pub use lakehouse::{Lakehouse, LakehouseCompression, LakehouseError};
