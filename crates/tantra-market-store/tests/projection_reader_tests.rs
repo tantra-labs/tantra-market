@@ -12,6 +12,7 @@ use rust_decimal::Decimal;
 use tantra_market_store::import::block_deals_projection::BlockDealsProjectionReader;
 use tantra_market_store::import::corporate_actions_projection::CorporateActionsProjectionReader;
 use tantra_market_store::import::filings_projection::FilingsProjectionReader;
+use tantra_market_store::import::news_projection::NewsProjectionReader;
 use tempfile::tempdir;
 
 #[test]
@@ -241,6 +242,96 @@ fn block_deals_reader_decodes_rows_and_nullable_remarks() {
 }
 
 #[test]
+fn news_reader_decodes_rows_and_nullable_summary() {
+    let dir = tempdir().unwrap();
+    let news_dir = dir.path().join("catalog").join("news");
+    std::fs::create_dir_all(&news_dir).unwrap();
+
+    let schema = Arc::new(Schema::new(vec![
+        Field::new("published_date", DataType::Date32, false),
+        Field::new("published_at", DataType::Utf8, false),
+        Field::new("article_id", DataType::Utf8, false),
+        Field::new("title", DataType::Utf8, false),
+        Field::new("source", DataType::Utf8, false),
+        Field::new("url", DataType::Utf8, false),
+        Field::new("summary", DataType::Utf8, true),
+        Field::new("instruments", DataType::Utf8, false),
+    ]));
+    let unix_epoch = NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
+    let days_of = |y: i32, m: u32, d: u32| {
+        i32::try_from((NaiveDate::from_ymd_opt(y, m, d).unwrap() - unix_epoch).num_days()).unwrap()
+    };
+    let batch = RecordBatch::try_new(
+        schema.clone(),
+        vec![
+            Arc::new(Date32Array::from(vec![
+                days_of(2026, 1, 5),
+                days_of(2026, 1, 6),
+            ])),
+            Arc::new(StringArray::from(vec![
+                "2026-01-05T10:30:00+00:00",
+                "2026-01-06T09:00:00Z",
+            ])),
+            Arc::new(StringArray::from(vec!["n1", "n2"])),
+            Arc::new(StringArray::from(vec![
+                "Reliance board meeting",
+                "TCS results",
+            ])),
+            Arc::new(StringArray::from(vec!["moneycontrol", "moneycontrol"])),
+            Arc::new(StringArray::from(vec![
+                "https://example.com/reliance",
+                "https://example.com/tcs",
+            ])),
+            Arc::new(StringArray::from(vec![Some("Q3 update"), None])),
+            Arc::new(StringArray::from(vec![
+                "NSE:RELIANCE-EQ",
+                "NSE:TCS-EQ,NSE:INFY-EQ",
+            ])),
+        ],
+    )
+    .unwrap();
+
+    let path = news_dir.join("2026-01-05.parquet");
+    let file = std::fs::File::create(&path).unwrap();
+    let mut writer = ArrowWriter::try_new(file, schema, None).unwrap();
+    writer.write(&batch).unwrap();
+    writer.close().unwrap();
+
+    let rows = NewsProjectionReader::new(dir.path()).read().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        rows[0].published_date,
+        NaiveDate::from_ymd_opt(2026, 1, 5).unwrap()
+    );
+    assert_eq!(
+        rows[0].published_at,
+        chrono::DateTime::parse_from_rfc3339("2026-01-05T10:30:00+00:00")
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    );
+    assert_eq!(rows[0].article_id, "n1");
+    assert_eq!(rows[0].title, "Reliance board meeting");
+    assert_eq!(rows[0].source, "moneycontrol");
+    assert_eq!(rows[0].url, "https://example.com/reliance");
+    assert_eq!(rows[0].summary.as_deref(), Some("Q3 update"));
+    assert_eq!(rows[0].instruments, vec!["NSE:RELIANCE-EQ"]);
+    assert_eq!(
+        rows[1].published_date,
+        NaiveDate::from_ymd_opt(2026, 1, 6).unwrap()
+    );
+    assert_eq!(
+        rows[1].published_at,
+        chrono::DateTime::parse_from_rfc3339("2026-01-06T09:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc)
+    );
+    assert_eq!(rows[1].article_id, "n2");
+    assert_eq!(rows[1].title, "TCS results");
+    assert_eq!(rows[1].summary, None);
+    assert_eq!(rows[1].instruments, vec!["NSE:TCS-EQ", "NSE:INFY-EQ"]);
+}
+
+#[test]
 fn readers_return_empty_for_a_missing_catalog_directory() {
     let dir = tempdir().unwrap();
     assert!(
@@ -257,6 +348,12 @@ fn readers_return_empty_for_a_missing_catalog_directory() {
     );
     assert!(
         BlockDealsProjectionReader::new(dir.path())
+            .read()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        NewsProjectionReader::new(dir.path())
             .read()
             .unwrap()
             .is_empty()

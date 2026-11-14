@@ -48,6 +48,7 @@ pub use import::corporate_actions_projection::{
 pub use import::filings_projection::{
     FilingProjection, FilingsProjectionError, FilingsProjectionReader,
 };
+pub use import::news_projection::{NewsProjection, NewsProjectionError, NewsProjectionReader};
 pub use import::parquet_source::{ParquetBarSource, ParquetError};
 pub use instruments::{CatalogError, CatalogInstrumentMaster, snapshot_schema};
 pub use lakehouse::{Lakehouse, LakehouseCompression, LakehouseError};
