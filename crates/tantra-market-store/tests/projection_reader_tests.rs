@@ -172,10 +172,10 @@ fn block_deals_reader_decodes_rows_and_nullable_remarks() {
         Field::new("price", DataType::Decimal128(18, 4), false),
         Field::new("remarks", DataType::Utf8, true),
     ]));
-    let quantities = Decimal128Array::from(vec![Some(25_000_000_i128), Some(10_000_000_i128)])
+    let quantities = Decimal128Array::from(vec![Some(2_500_000_000_i128), Some(100_000_000_i128)])
         .with_precision_and_scale(18, 4)
         .unwrap();
-    let prices = Decimal128Array::from(vec![Some(250_050_i128), Some(400_000_i128)])
+    let prices = Decimal128Array::from(vec![Some(25_005_000_i128), Some(40_000_000_i128)])
         .with_precision_and_scale(18, 4)
         .unwrap();
     let batch = RecordBatch::try_new(
@@ -215,11 +215,11 @@ fn block_deals_reader_decodes_rows_and_nullable_remarks() {
     assert_eq!(rows[0].category, "block");
     assert_eq!(
         rows[0].quantity,
-        Decimal::try_from_i128_with_scale(25_000_000, 4).unwrap()
+        Decimal::try_from_i128_with_scale(2_500_000_000, 4).unwrap()
     );
     assert_eq!(
         rows[0].price,
-        Decimal::try_from_i128_with_scale(250_050, 4).unwrap()
+        Decimal::try_from_i128_with_scale(25_005_000, 4).unwrap()
     );
     assert_eq!(rows[0].remarks.as_deref(), Some("Block deal window"));
     assert_eq!(
@@ -231,11 +231,11 @@ fn block_deals_reader_decodes_rows_and_nullable_remarks() {
     assert_eq!(rows[1].category, "bulk");
     assert_eq!(
         rows[1].quantity,
-        Decimal::try_from_i128_with_scale(10_000_000, 4).unwrap()
+        Decimal::try_from_i128_with_scale(100_000_000, 4).unwrap()
     );
     assert_eq!(
         rows[1].price,
-        Decimal::try_from_i128_with_scale(400_000, 4).unwrap()
+        Decimal::try_from_i128_with_scale(40_000_000, 4).unwrap()
     );
     assert_eq!(rows[1].remarks, None);
 }

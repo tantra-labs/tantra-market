@@ -76,6 +76,7 @@ pub struct BlockDealProjection {
 }
 
 /// Reader over the `{root}/catalog/block_deals` projection directory.
+#[derive(Clone)]
 pub struct BlockDealsProjectionReader {
     dir: PathBuf,
 }
