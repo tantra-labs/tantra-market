@@ -1,5 +1,18 @@
 # HANDOFF — `tantra-market`
 
+## Latest Batch — T7 projection readers (2026-11-14)
+
+Added two more `tantra-data` lakehouse projection readers to `tantra-market-store`
+(alongside the T5 filings/corporate-actions readers), unblocking runtime chat tools:
+- `BlockDealsProjectionReader` (`src/import/block_deals_projection.rs`, `02fc20e`/`84d1e99` —
+  reads `{root}/catalog/block_deals/*.parquet`, exact `Decimal128(18,4)` quantity/price) →
+  unblocks runtime `FeedMarketReader::block_deals` + `GET /market-data/block-deals` (T7.2/T7.3).
+- `NewsProjectionReader` (`src/import/news_projection.rs`, `c88db45` — reads
+  `{root}/catalog/news/*.parquet`, RFC3339 `published_at`, comma-joined instruments) →
+  unblocks runtime `FeedContentReader::news_search` (T7.7 item 7).
+Both registered in `import/mod.rs` + re-exported from `lib.rs`; tests in
+`tests/projection_reader_tests.rs` (5 green). Full workspace check/fmt/clippy green.
+
 ## Phase / Slice Status
 Plan `docs/plans/0001-technicals-breadth-and-derivatives-pricing.md` (Technical Indicator Breadth, Market Data Scope, and Derivatives Pricing) is **complete and cleaned up**:
 - Phase 1 (indicator breadth: 18 indicators) — implemented & committed (`ddb5c3f`).
