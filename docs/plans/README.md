@@ -9,7 +9,7 @@ Per workspace rule `.agents/rules/gap-tracking.md`:
 
 | # | Title | Target Scope | Status |
 |---|-------|--------------|--------|
-| — | — | — | (none) |
+| [0002](0002-chart-pattern-analyzer.md) | Chart Pattern Analyzer — geometric patterns (flag, triangle, rectangle/Darvas, double top/bottom, H&S, wedge, cup-and-handle, VCP) + multi-bar candlesticks, emitting breakout/invalidation/measured-target geometry | `tantra-market-signals` | Proposed — root plan 0008 §3; wire type in `tantra-core` plan 0005 §2a |
 
 ## Implemented Plans
 
