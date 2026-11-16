@@ -11,7 +11,7 @@ Callers of the trade planner currently have nowhere to source these.
 ## Why
 
 Needed by the trade-signal-generator presets ([root plan 0008](../../../docs/plans/0008-trade-signal-generator.md)):
-`qullamaggie` rejects entries whose stop distance exceeds 1 x ADR%(20) (root plan 0006, gap row 22); `atr_swing` and `ee_plus`
+`qullamaggie` rejects entries whose stop distance exceeds 1 x ADR%(20) (root plan 0009, gap row 22); `atr_swing` and `ee_plus`
 use a Chandelier trail on the runner. Core plan `tantra-core/docs/plans/0005-trade-planner-and-manager.md` takes both as caller-supplied
 `PlannerInputs` / manager snapshot values.
 

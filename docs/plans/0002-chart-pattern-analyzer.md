@@ -31,7 +31,7 @@ The `TradePlanner` (core plan 0005) can then build entry, SL and targets from pr
 - Explicit distinction between `FormingArmed` setups and `BreakoutConfirmed` patterns.
 
 **Who needs this:**
-- Root [plan 0006](../../../docs/plans/0006-qullamaggie-swing-trading-platform.md) (Qullamaggie): flag, VCP and Darvas breakout detection.
+- Root [plan 0009](../../../docs/plans/0009-qullamaggie-swing-trading-platform.md) (Qullamaggie): flag, VCP and Darvas breakout detection.
 - Root [plan 0007](../../../docs/plans/0007-screener-taxonomy-and-alerts.md) & [`tantra-data` plan 0008](../../../tantra-data/docs/plans/0008-screen-dsl-catalog-qvm.md): Candlestick and Pattern screen categories.
 - `tantra-ui` gap [0007](../../../tantra-ui/docs/gaps/0007-chart-level-and-annotation-primitives.md): chart annotations from `ChartPattern` pivots/levels.
 
@@ -98,7 +98,7 @@ All tests go in `crates/tantra-market-signals/tests/`:
 - Must stay WASM-compatible where `tantra-market-signals` already is.
 - Consumers:
   - `tantra-runtime` signal scan and backtest (`tantra-runtime` plan `0006`)
-  - `tantra-ffi` bindings (`tantra-ffi` plan `0002`)
+  - `tantra-ffi` bindings (`tantra-ffi` plan `0004`)
   - `tantra-data` screen catalog Candlestick/Pattern presets (`tantra-data` plan `0008`)
   - agent `chart_patterns` tool (`tantra-agent` plan `0014`)
   - `tantra-ui` chart annotation primitives (`tantra-ui` gap `0007`)
