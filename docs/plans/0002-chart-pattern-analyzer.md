@@ -32,7 +32,7 @@ The `TradePlanner` (core plan 0005) can then build entry, SL and targets from pr
 
 **Who needs this:**
 - Root [plan 0009](../../../docs/plans/0009-qullamaggie-swing-trading-platform.md) (Qullamaggie): flag, VCP and Darvas breakout detection.
-- Root [plan 0007](../../../docs/plans/0007-screener-taxonomy-and-alerts.md) & [`tantra-data` plan 0008](../../../tantra-data/docs/plans/0008-screen-dsl-catalog-qvm.md): Candlestick and Pattern screen categories.
+- Root [plan 0010](../../../docs/plans/0010-screener-taxonomy-and-alerts.md) & [`tantra-data` plan 0008](../../../tantra-data/docs/plans/0008-screen-dsl-catalog-qvm.md): Candlestick and Pattern screen categories.
 - `tantra-ui` gap [0007](../../../tantra-ui/docs/gaps/0007-chart-level-and-annotation-primitives.md): chart annotations from `ChartPattern` pivots/levels.
 
 ## 2. Component Specifications & Phases
