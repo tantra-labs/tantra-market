@@ -180,8 +180,11 @@ pub fn timeframe_dir(tf: Timeframe) -> &'static str {
         Timeframe::M15 => "15m",
         Timeframe::M30 => "30m",
         Timeframe::H1 => "1h",
+        Timeframe::H2 => "2h",
+        Timeframe::H4 => "4h",
         Timeframe::D1 => "1d",
         Timeframe::W1 => "1w",
+        Timeframe::Month1 => "1M",
     }
 }
 
