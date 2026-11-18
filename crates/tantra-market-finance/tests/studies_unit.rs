@@ -4,10 +4,12 @@ use chrono::{Datelike, Duration, NaiveDate, Weekday};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tantra_market_finance::studies::{
-    ExperimentalStudyConfig, IntradayBar, MarkovState, OhlcvBar, OrbConfig, OutlierStatus,
-    PeriodScheduleKind, ReturnCalcKind, RollBasisMode, SpreadCostConfig, StreakDirection,
-    StudyAssetClass, SubCycleKind, analyze_cross_asset_correlation, analyze_cycle_progress,
-    analyze_gaps, analyze_intraday_movement, analyze_rolling_5day, evaluate_returns_study,
+    ExperimentalStudyConfig, IntradayBar, LiveOptionStrikeQuote, MarkovState, OhlcvBar,
+    OptionOverlayStrategy, OptionsOverlayConfig, OrbConfig, OutlierStatus, PeriodScheduleKind,
+    ReturnCalcKind, RollBasisMode, SpreadCostConfig, StreakDirection, StudyAssetClass,
+    StudyEventInput, StudyEventKind, SubCycleKind, analyze_cross_asset_correlation,
+    analyze_cycle_progress, analyze_gaps, analyze_intraday_movement, analyze_rolling_5day,
+    evaluate_event_study, evaluate_forecasting, evaluate_options_overlay, evaluate_returns_study,
     run_orb15_flip_backtest, slice_periods,
 };
 use tantra_market_finance::{MarketCalendar, NseCalendar, Session};
@@ -527,4 +529,192 @@ fn phase2_intraday_orb_gap_five_day_progress_and_correlation_work_in_decimal() {
     assert_eq!(corr.pearson_matrix[0][1], corr.pearson_matrix[1][0]);
     assert!(corr.pair_pearson > dec!(0.9));
     assert!(!corr.rolling_series.is_empty());
+}
+
+#[test]
+fn phase3_options_overlay_forecasting_and_event_study_work_in_decimal() {
+    let cal = NseCalendar::from_holidays(vec![]);
+    let daily = generate_trading_bars(
+        NaiveDate::from_ymd_opt(2024, 6, 3).unwrap(),
+        140,
+        &[
+            dec!(0.6),
+            dec!(-0.4),
+            dec!(0.8),
+            dec!(-0.3),
+            dec!(0.5),
+            dec!(-0.7),
+            dec!(0.4),
+        ],
+    );
+    let bench = generate_trading_bars(
+        NaiveDate::from_ymd_opt(2024, 6, 3).unwrap(),
+        140,
+        &[
+            dec!(0.3),
+            dec!(-0.2),
+            dec!(0.4),
+            dec!(-0.1),
+            dec!(0.2),
+            dec!(-0.3),
+            dec!(0.2),
+        ],
+    );
+    let (periods, _) = slice_periods(
+        &daily,
+        "NSE:NIFTY50",
+        StudyAssetClass::Index,
+        PeriodScheduleKind::WeeklyExpiry,
+        SubCycleKind::Current,
+        ReturnCalcKind::OpenToClose,
+        &cal,
+    );
+
+    // 1. Multi-leg Iron Condor with live option quotes + spread drag + statutory costs
+    let exp = NaiveDate::from_ymd_opt(2024, 12, 26).unwrap();
+    let spot = daily.last().unwrap().close;
+    let atm = (spot / dec!(100)).round() * dec!(100);
+    let live_quotes = vec![
+        LiveOptionStrikeQuote {
+            option_type: "CE".to_string(),
+            strike: atm,
+            expiry: exp,
+            lot_size: dec!(75),
+            bid: Some(dec!(240.00)),
+            ask: Some(dec!(242.00)),
+            last_price: Some(dec!(241.00)),
+            open_interest: Some(dec!(500000)),
+        },
+        LiveOptionStrikeQuote {
+            option_type: "CE".to_string(),
+            strike: atm + dec!(300),
+            expiry: exp,
+            lot_size: dec!(75),
+            bid: Some(dec!(110.00)),
+            ask: Some(dec!(112.00)),
+            last_price: Some(dec!(111.00)),
+            open_interest: Some(dec!(650000)),
+        },
+        LiveOptionStrikeQuote {
+            option_type: "CE".to_string(),
+            strike: atm + dec!(900),
+            expiry: exp,
+            lot_size: dec!(75),
+            bid: Some(dec!(28.00)),
+            ask: Some(dec!(29.00)),
+            last_price: Some(dec!(28.50)),
+            open_interest: Some(dec!(420000)),
+        },
+        LiveOptionStrikeQuote {
+            option_type: "PE".to_string(),
+            strike: atm - dec!(300),
+            expiry: exp,
+            lot_size: dec!(75),
+            bid: Some(dec!(105.00)),
+            ask: Some(dec!(108.00)),
+            last_price: Some(dec!(106.50)),
+            open_interest: Some(dec!(700000)),
+        },
+        LiveOptionStrikeQuote {
+            option_type: "PE".to_string(),
+            strike: atm - dec!(900),
+            expiry: exp,
+            lot_size: dec!(75),
+            bid: Some(dec!(24.00)),
+            ask: Some(dec!(25.00)),
+            last_price: Some(dec!(24.50)),
+            open_interest: Some(dec!(390000)),
+        },
+    ];
+    let ic = evaluate_options_overlay(
+        &periods,
+        &live_quotes,
+        &OptionsOverlayConfig {
+            symbol: "NSE:NIFTY50".to_string(),
+            asset_class: StudyAssetClass::Index,
+            strategy: OptionOverlayStrategy::IronCondor,
+            target_short_prob_pct: dec!(80),
+            wing_width_pct: dec!(3),
+            lot_size: dec!(75),
+            tick_size: dec!(0.05),
+            spread_slippage_bps: dec!(10),
+            include_statutory_costs: true,
+            live_spot_override: None,
+        },
+    );
+    assert!(ic.live_chain_available);
+    assert_eq!(ic.legs.len(), 4);
+    assert!(ic.quoted_iv_proxy_pct.is_some());
+    assert!(ic.total_spread_drag_pct > Decimal::ZERO);
+    assert!(ic.statutory_cost_pct > Decimal::ZERO);
+    assert_eq!(ic.equity_curve.len(), periods.len());
+    assert!(!ic.strike_lab.is_empty());
+    assert!(
+        ic.strike_lab
+            .iter()
+            .all(|s| s.bid.is_some() && s.ask.is_some())
+    );
+
+    // Unquoted offline check: never fabricate bid/ask!
+    let offline_cc = evaluate_options_overlay(
+        &periods,
+        &[],
+        &OptionsOverlayConfig {
+            symbol: "NSE:NIFTY50".to_string(),
+            asset_class: StudyAssetClass::Index,
+            strategy: OptionOverlayStrategy::CoveredCall,
+            target_short_prob_pct: dec!(80),
+            wing_width_pct: dec!(3),
+            lot_size: dec!(75),
+            tick_size: dec!(0.05),
+            spread_slippage_bps: dec!(10),
+            include_statutory_costs: false,
+            live_spot_override: None,
+        },
+    );
+    assert!(!offline_cc.live_chain_available);
+    assert!(offline_cc.quoted_iv_proxy_pct.is_none());
+    assert!(
+        offline_cc
+            .strike_lab
+            .iter()
+            .all(|s| s.bid.is_none() && s.ask.is_none() && s.liquidity_tier == "unquoted")
+    );
+
+    // 2. Markov + Vol Analog Forecasting
+    let forecast = evaluate_forecasting(&periods, None, 4);
+    assert_eq!(forecast.horizon_fan.len(), 4);
+    assert!(forecast.analog_count >= 1);
+    for step in &forecast.horizon_fan {
+        assert!(step.p90_pct >= step.p75_pct);
+        assert!(step.p75_pct >= step.p50_pct);
+        assert!(step.p50_pct >= step.p25_pct);
+        assert!(step.p25_pct >= step.p10_pct);
+    }
+
+    // 3. Event Study CAR [-20d, +20d]
+    let ev_dates = [daily[35].date, daily[85].date];
+    let events: Vec<StudyEventInput> = ev_dates
+        .iter()
+        .enumerate()
+        .map(|(i, d)| StudyEventInput {
+            event_date: *d,
+            symbol: "NSE:RELIANCE".to_string(),
+            kind: StudyEventKind::Earnings,
+            title: format!("Quarterly Result #{i}"),
+            detail: None,
+        })
+        .collect();
+    let ev_report = evaluate_event_study(&daily, Some(&bench), Some("NSE:NIFTY50"), &events);
+    assert!(ev_report.available);
+    assert!(ev_report.benchmark_adjusted);
+    assert_eq!(ev_report.event_count, 2);
+    assert_eq!(ev_report.window_curve.len(), 41);
+    assert_eq!(ev_report.window_curve[0].day_offset, -20);
+    assert_eq!(ev_report.window_curve[40].day_offset, 20);
+
+    // Empty events -> honest available: false
+    let empty_ev = evaluate_event_study(&daily, None, None, &[]);
+    assert!(!empty_ev.available);
+    assert_eq!(empty_ev.event_count, 0);
 }

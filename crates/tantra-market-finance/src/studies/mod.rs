@@ -10,10 +10,13 @@
 //! - Intraday `5m` movement, overnight gaps, 5-day rolling move, 0-100% cycle progress, and
 //!   15m ORB Flip backtester (`intraday_orb`)
 //! - Cross-asset N×N Pearson/Spearman correlation, rolling beta & pair spread (`correlation`)
+//! - Multi-leg F&O options overlay & strike lab, Markov+vol analog forecasting, and
+//!   `CAR[-20d, +20d]` event study (`options_events`)
 
 pub mod correlation;
 pub mod distributions;
 pub mod intraday_orb;
+pub mod options_events;
 pub mod returns;
 pub mod schedule;
 pub mod spreads;
@@ -38,6 +41,13 @@ pub use intraday_orb::{
     OrbEquityPoint, OrbTradeRow, RollingFiveDayAnalysis, RollingFiveDayPoint,
     analyze_cycle_progress, analyze_gaps, analyze_intraday_movement, analyze_rolling_5day,
     run_orb15_flip_backtest,
+};
+pub use options_events::{
+    AnalogEpisode, EventStudyReport, EventStudyRow, EventWindowPoint, ForecastHorizonStep,
+    ForecastReport, LiveOptionStrikeQuote, OptionLegSpec, OptionOverlayStrategy,
+    OptionsOverlayConfig, OptionsOverlayReport, OverlayEquityPoint, StrikeLabRow, StudyEventInput,
+    StudyEventKind, VolatilityRegime, evaluate_event_study, evaluate_forecasting,
+    evaluate_options_overlay,
 };
 pub use returns::{
     DailyOhlcRow, DailyOhlcSummary, PeriodPoint, ReturnKpis, compute_daily_ohlc_summary,
