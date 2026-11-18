@@ -2,14 +2,21 @@
 //!
 //! Covers:
 //! - Regime-aware period slicing (`schedule`) across Indices, F&O Stocks, ETFs, Equities, Forex & Commodities
+//! - F&O spread, futures roll-basis & statutory cost adjustments (`spreads`)
 //! - Period return KPIs & rolling moving average (`returns`)
 //! - Directional streak runs & 6-state Markov transition matrix (`streaks_markov`)
 //! - Empirical percentiles, 16-bucket & 10-bps distributions, Probability-Based Levels,
 //!   Green-vs-Red comparisons, conditional forward returns & survivability outliers (`distributions`)
+//! - Intraday `5m` movement, overnight gaps, 5-day rolling move, 0-100% cycle progress, and
+//!   15m ORB Flip backtester (`intraday_orb`)
+//! - Cross-asset N×N Pearson/Spearman correlation, rolling beta & pair spread (`correlation`)
 
+pub mod correlation;
 pub mod distributions;
+pub mod intraday_orb;
 pub mod returns;
 pub mod schedule;
+pub mod spreads;
 pub mod streaks_markov;
 
 use rust_decimal::Decimal;
@@ -18,11 +25,19 @@ use thiserror::Error;
 
 use crate::calendar::MarketCalendar;
 
+pub use correlation::{CorrelationAnalysis, RollingPairPoint, analyze_cross_asset_correlation};
 pub use distributions::{
     DistributionBundle, ForwardConditionEvent, ForwardConditionalGroup, GreenVsRedComparison,
     MagnitudePdfBucket, OutlierAnalysis, OutlierKpis, OutlierPeriodPoint, OutlierStatus,
     PolarityStats, ProbabilityLevelRow, ReturnBucketRow, ReturnPercentiles,
     analyze_distributions_and_outliers, empirical_quantile,
+};
+pub use intraday_orb::{
+    CycleProgressAnalysis, CycleProgressDecile, GapAnalysis, GapBucketRow, GapEventRow,
+    IntradayBar, IntradayMovementAnalysis, IntradaySlotStat, OrbBacktestResult, OrbConfig,
+    OrbEquityPoint, OrbTradeRow, RollingFiveDayAnalysis, RollingFiveDayPoint,
+    analyze_cycle_progress, analyze_gaps, analyze_intraday_movement, analyze_rolling_5day,
+    run_orb15_flip_backtest,
 };
 pub use returns::{
     DailyOhlcRow, DailyOhlcSummary, PeriodPoint, ReturnKpis, compute_daily_ohlc_summary,
@@ -31,6 +46,10 @@ pub use returns::{
 pub use schedule::{
     OhlcvBar, PeriodScheduleKind, ReturnCalcKind, SlicedPeriod, StudyAssetClass, SubCycleKind,
     slice_periods,
+};
+pub use spreads::{
+    FrictionSummary, RollBasisMode, SpreadCostConfig, apply_spread_and_basis,
+    estimate_statutory_roundtrip_bps,
 };
 pub use streaks_markov::{
     MarkovAnalysis, MarkovCurrentPrediction, MarkovState, MarkovStateProbability,
@@ -55,7 +74,7 @@ pub enum StudyError {
     },
 }
 
-/// Parameters controlling a Phase 1 Returns / Distribution / Outlier study evaluation.
+/// Parameters controlling a Phase 1/2 Returns, Distribution & Outlier study evaluation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperimentalStudyConfig {
     /// Instrument symbol/id used to detect NSE/BSE regime rules cleanly.
@@ -76,13 +95,18 @@ pub struct ExperimentalStudyConfig {
     pub tail_threshold_pct: Decimal,
     /// Optional live spot price override (`None` falls back to latest bar close).
     pub live_spot_override: Option<Decimal>,
+    /// Optional F&O spread, futures roll basis & statutory fee config (Phase 2).
+    #[serde(default)]
+    pub spread_cost: SpreadCostConfig,
 }
 
-/// Complete Phase 1 statistical study bundle computed cleanly in exact `Decimal`.
+/// Complete statistical study bundle computed cleanly in exact `Decimal`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExperimentalStudyReport {
     /// Regime transition note if the requested range spans an exchange cutover.
     pub regime_note: Option<String>,
+    /// Optional Gross vs Net comparison when F&O spread/basis/statutory costs are applied.
+    pub friction_summary: Option<FrictionSummary>,
     /// 3×3 return summary metrics.
     pub kpis: ReturnKpis,
     /// Sliced periods + rolling MA values.
@@ -127,7 +151,7 @@ pub(crate) fn decimal_sqrt(x: Decimal) -> Decimal {
     guess
 }
 
-/// Evaluates the complete Phase 1 `Experimental-Analysis` statistical study on `bars`.
+/// Evaluates the complete Phase 1 + 2 `Experimental-Analysis` statistical study on `bars`.
 pub fn evaluate_returns_study(
     bars: &[OhlcvBar],
     calendar: &dyn MarketCalendar,
@@ -139,7 +163,7 @@ pub fn evaluate_returns_study(
         });
     }
 
-    let (periods, regime_note) = slice_periods(
+    let (mut periods, regime_note) = slice_periods(
         bars,
         &config.symbol,
         config.asset_class,
@@ -156,6 +180,15 @@ pub fn evaluate_returns_study(
     }
 
     let ma_w = config.ma_window.clamp(2, 120);
+    let friction_summary = apply_spread_and_basis(
+        &mut periods,
+        config.asset_class,
+        &config.symbol,
+        config.calc_kind,
+        &config.spread_cost,
+        ma_w,
+    );
+
     let (period_series, kpis) = compute_return_series_and_kpis(&periods, ma_w);
     let (streaks, markov) = analyze_streaks_and_markov(&periods);
     let (daily_ohlc_summary, daily_ohlc_rows) = compute_daily_ohlc_summary(bars);
@@ -175,6 +208,7 @@ pub fn evaluate_returns_study(
 
     Ok(ExperimentalStudyReport {
         regime_note,
+        friction_summary,
         kpis,
         period_series,
         streaks,
