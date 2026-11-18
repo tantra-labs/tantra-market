@@ -7,7 +7,7 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use arrow::array::{ArrayRef, Float64Array, StringArray};
+use arrow::array::{ArrayRef, Decimal128Array, StringArray};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -58,7 +58,17 @@ fn write_catalog(root: &Path, date: &str, rows: &[OptRow]) {
     let dir = root.join("instruments");
     std::fs::create_dir_all(&dir).unwrap();
     let strings = |values: Vec<Option<&str>>| -> ArrayRef { Arc::new(StringArray::from(values)) };
-    let numbers = |values: Vec<Option<f64>>| -> ArrayRef { Arc::new(Float64Array::from(values)) };
+    let numbers = |values: Vec<Option<f64>>| -> ArrayRef {
+        let scaled: Vec<Option<i128>> = values
+            .into_iter()
+            .map(|v| v.map(|f| (f * 10_000.0).round() as i128))
+            .collect();
+        Arc::new(
+            Decimal128Array::from(scaled)
+                .with_precision_and_scale(18, 4)
+                .unwrap(),
+        )
+    };
     let columns: Vec<ArrayRef> = vec![
         strings(rows.iter().map(|r| Some(r.symbol)).collect()),
         strings(rows.iter().map(|_| Some("NFO")).collect()),

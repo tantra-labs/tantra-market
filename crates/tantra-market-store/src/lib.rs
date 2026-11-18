@@ -17,10 +17,12 @@ pub mod export;
 pub mod import;
 /// Dated instrument snapshots (E1-S3).
 pub mod instruments;
-/// Parquet Lakehouse v2: canonical, exact-decimal, Hive-partitioned storage.
+/// Parquet Lakehouse v2/v3: canonical, exact-decimal, Hive-partitioned & CAS storage.
 pub mod lakehouse;
 /// A writable latest-quote store layered over a [`DatasetReader`].
 pub mod live_quotes;
+/// Lakehouse v3 git-style CAS manifest resolver, writer, and alias directory.
+pub mod manifest;
 /// Open-interest time-series snapshot stores (gap 0002).
 pub mod open_interest;
 /// A persistent Parquet tick store (ADR 0030).
@@ -69,8 +71,15 @@ pub use import::institutional_flows_projection::{
 pub use import::news_projection::{NewsProjection, NewsProjectionError, NewsProjectionReader};
 pub use import::parquet_source::{ParquetBarSource, ParquetError};
 pub use instruments::{CatalogError, CatalogInstrumentMaster, snapshot_schema};
-pub use lakehouse::{Lakehouse, LakehouseCompression, LakehouseError};
+pub use lakehouse::{
+    CompactionReport, Lakehouse, LakehouseCompression, LakehouseError, bar_schema_v2,
+    bar_schema_v3, tick_schema_v2, tick_schema_v3,
+};
 pub use live_quotes::LiveQuoteStore;
+pub use manifest::{
+    InstrumentAlias, LAKEHOUSE_SCHEMA_VERSION, ManifestCommit, ManifestEntry, ManifestError,
+    ManifestResolver, commit_entries, create_tag, write_cas_batch,
+};
 pub use open_interest::{
     InMemoryOpenInterestStore, OI_DIR, OiStoreError, OpenInterestSnapshot, OpenInterestStore,
     ParquetOpenInterestStore, oi_schema, write_oi_file,

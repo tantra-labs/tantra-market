@@ -17,6 +17,9 @@ parquet = { workspace = true }
 csv = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

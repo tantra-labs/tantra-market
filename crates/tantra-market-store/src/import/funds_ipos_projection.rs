@@ -1,11 +1,13 @@
 //! Mutual-fund / IPO projection readers (gaps `tantra-data` 0021 + 0022).
 //!
-//! `tantra-data` publishes five projection datasets:
-//! - `{root}/catalog/mutual_funds/<as_of_date>.parquet` — scheme metadata per NAV-dump date.
-//! - `{root}/catalog/mf_nav/<nav_date>.parquet` — per-scheme NAV / repurchase / sale prices.
-//! - `{root}/catalog/mf_returns/<as_of_date>.parquet` — derived CAGR / expense ratio.
-//! - `{root}/catalog/ipos/<as_of_date>.parquet` — IPO issue metadata (price band, lot, size).
-//! - `{root}/catalog/ipo_subscriptions/<as_of_date>.parquet` — live subscription multiples.
+//! `tantra-data` publishes five projection datasets under Lakehouse v3
+//! (`fundamentals/{mutual_funds,mf_nav,mf_returns}` and `disclosures/{ipos,ipo_subscriptions}`)
+//! or legacy `{root}/catalog/{mutual_funds,mf_nav,mf_returns,ipos,ipo_subscriptions}`:
+//! - `mutual_funds`: scheme metadata per NAV-dump date.
+//! - `mf_nav`: per-scheme NAV / repurchase / sale prices.
+//! - `mf_returns`: derived CAGR / expense ratio.
+//! - `ipos`: IPO issue metadata (price band, lot, size).
+//! - `ipo_subscriptions`: live subscription multiples.
 //!
 //! All money/ratio columns are exact `decimal128(18,4)`; nullable when the vendor did not
 //! report the value. This module decodes them into owned projections with exact `Decimal`s.
@@ -19,6 +21,8 @@ use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rust_decimal::Decimal;
 use thiserror::Error;
+
+use crate::manifest::{ManifestError, arrow_utf8_array, resolve_projection_files};
 
 /// Days from the proleptic Gregorian CE epoch (0001-01-01) to the Unix epoch (1970-01-01).
 const UNIX_EPOCH_DAYS_FROM_CE: i64 = 719_163;
@@ -38,6 +42,9 @@ pub enum FundsIposProjectionError {
     /// An Arrow array conversion error occurred.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A required column is missing or of an unexpected type.
     #[error("missing column: {0}")]
     MissingColumn(&'static str),
@@ -152,35 +159,52 @@ pub struct IpoSubscriptionProjection {
     pub total: Option<Decimal>,
 }
 
-/// Reader over the five fund/IPO projection directories.
+/// Reader over the five fund/IPO projection datasets (Lakehouse v3 or legacy `{root}/catalog/...`).
 #[derive(Clone)]
 pub struct FundsIposProjectionReader {
-    mutual_funds_dir: PathBuf,
-    mf_nav_dir: PathBuf,
-    mf_returns_dir: PathBuf,
-    ipos_dir: PathBuf,
-    ipo_subscriptions_dir: PathBuf,
+    root: PathBuf,
+    reference: Option<String>,
+    legacy_fallback: bool,
 }
 
 impl FundsIposProjectionReader {
-    /// Creates a reader rooted at `root`, the `tantra-data` catalog root.
+    /// Creates a reader rooted at `root`, the `tantra-data` lakehouse/catalog root.
     pub fn new(root: impl AsRef<Path>) -> Self {
-        let root = root.as_ref();
         Self {
-            mutual_funds_dir: root.join("catalog").join("mutual_funds"),
-            mf_nav_dir: root.join("catalog").join("mf_nav"),
-            mf_returns_dir: root.join("catalog").join("mf_returns"),
-            ipos_dir: root.join("catalog").join("ipos"),
-            ipo_subscriptions_dir: root.join("catalog").join("ipo_subscriptions"),
+            root: root.as_ref().to_path_buf(),
+            reference: None,
+            legacy_fallback: true,
         }
+    }
+
+    /// Pins reads to a specific Lakehouse v3 commit/tag/branch reference.
+    #[must_use]
+    pub fn with_ref(mut self, reference: impl Into<String>) -> Self {
+        self.reference = Some(reference.into());
+        self
+    }
+
+    /// Enables or disables legacy `{root}/catalog/*` fallback (default `true`).
+    #[must_use]
+    pub fn with_legacy_fallback(mut self, enabled: bool) -> Self {
+        self.legacy_fallback = enabled;
+        self
     }
 
     /// Reads every mutual-fund scheme-metadata row.
     pub fn read_mutual_funds(
         &self,
     ) -> Result<Vec<MutualFundMetaProjection>, FundsIposProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "mutual_funds",
+            "mutual_funds",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut rows = Vec::new();
-        for file in parquet_files(&self.mutual_funds_dir)? {
+        for file in files {
             rows.extend(decode_file(&file, mutual_funds_of)?);
         }
         Ok(rows)
@@ -188,8 +212,16 @@ impl FundsIposProjectionReader {
 
     /// Reads every mutual-fund NAV observation.
     pub fn read_mf_nav(&self) -> Result<Vec<MutualFundNavProjection>, FundsIposProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "mf_nav",
+            "mf_nav",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut rows = Vec::new();
-        for file in parquet_files(&self.mf_nav_dir)? {
+        for file in files {
             rows.extend(decode_file(&file, mf_nav_of)?);
         }
         Ok(rows)
@@ -199,8 +231,16 @@ impl FundsIposProjectionReader {
     pub fn read_mf_returns(
         &self,
     ) -> Result<Vec<MutualFundReturnProjection>, FundsIposProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "mf_returns",
+            "mf_returns",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut rows = Vec::new();
-        for file in parquet_files(&self.mf_returns_dir)? {
+        for file in files {
             rows.extend(decode_file(&file, mf_returns_of)?);
         }
         Ok(rows)
@@ -208,8 +248,16 @@ impl FundsIposProjectionReader {
 
     /// Reads every IPO issue row.
     pub fn read_ipos(&self) -> Result<Vec<IpoProjection>, FundsIposProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "disclosures",
+            "ipos",
+            "ipos",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut rows = Vec::new();
-        for file in parquet_files(&self.ipos_dir)? {
+        for file in files {
             rows.extend(decode_file(&file, ipos_of)?);
         }
         Ok(rows)
@@ -219,26 +267,20 @@ impl FundsIposProjectionReader {
     pub fn read_ipo_subscriptions(
         &self,
     ) -> Result<Vec<IpoSubscriptionProjection>, FundsIposProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "disclosures",
+            "ipo_subscriptions",
+            "ipo_subscriptions",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut rows = Vec::new();
-        for file in parquet_files(&self.ipo_subscriptions_dir)? {
+        for file in files {
             rows.extend(decode_file(&file, ipo_subscriptions_of)?);
         }
         Ok(rows)
     }
-}
-
-/// Lists the sorted `*.parquet` files under `dir`, or an empty vector when absent.
-fn parquet_files(dir: &Path) -> Result<Vec<PathBuf>, FundsIposProjectionError> {
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "parquet"))
-        .collect();
-    files.sort();
-    Ok(files)
 }
 
 /// Decodes every batch of one parquet file through `decode`.
@@ -346,8 +388,8 @@ fn mutual_funds_of(
             scheme_name: scheme_names.value(row).to_string(),
             amc: amcs.value(row).to_string(),
             category: categories.value(row).to_string(),
-            isin_growth: optional_string_at(isin_growths, row),
-            isin_div_reinvestment: optional_string_at(isin_divs, row),
+            isin_growth: optional_string_at(&isin_growths, row),
+            isin_div_reinvestment: optional_string_at(&isin_divs, row),
             plan: plans.value(row).to_string(),
             option: options.value(row).to_string(),
         });
@@ -377,7 +419,7 @@ fn mf_nav_of(
             nav_date: date_at(nav_dates, row, "nav_date")?,
             scheme_code: scheme_codes.value(row).to_string(),
             nav: optional_decimal_at(navs, row, "nav")?
-                .ok_or_else(|| FundsIposProjectionError::BadDecimal { column: "nav" })?,
+                .ok_or(FundsIposProjectionError::BadDecimal { column: "nav" })?,
             repurchase_price: optional_decimal_at(repurchases, row, "repurchase_price")?,
             sale_price: optional_decimal_at(sales, row, "sale_price")?,
         });
@@ -517,15 +559,12 @@ fn date32_array<'a>(
         .ok_or(FundsIposProjectionError::MissingColumn(name))
 }
 
-/// Downcasts a column to a [`StringArray`], failing on a wrong type.
-fn string_array<'a>(
-    column: &'a dyn Array,
+/// Decodes a `Utf8` or `LargeUtf8` column to a [`StringArray`].
+fn string_array(
+    column: &dyn Array,
     name: &'static str,
-) -> Result<&'a StringArray, FundsIposProjectionError> {
-    column
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or(FundsIposProjectionError::MissingColumn(name))
+) -> Result<StringArray, FundsIposProjectionError> {
+    arrow_utf8_array(column).map_err(|_| FundsIposProjectionError::MissingColumn(name))
 }
 
 /// Downcasts a column to a [`Decimal128Array`], failing on a wrong type.

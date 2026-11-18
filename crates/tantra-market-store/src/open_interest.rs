@@ -1,4 +1,4 @@
-//! Open-interest time-series snapshot stores (`tantra-market/docs/gaps/0002`).
+//! Open-interest time-series snapshot stores (`tantra-market/docs/gaps/0002`, `0008`).
 //!
 //! Institutional-positioning detection ("smart money footprint") requires comparing
 //! open-interest *change* against price *change* over a window. This module provides the
@@ -9,18 +9,15 @@
 //! - [`InMemoryOpenInterestStore`] — a deterministic, zero-I/O store for tests and
 //!   in-process live use (feed consumers `put` snapshots as they arrive).
 //! - [`ParquetOpenInterestStore`] — a durable lakehouse store over dated Parquet files
-//!   (`{root}/open_interest/YYYY-MM-DD.parquet`, the same dated-snapshot layout as
-//!   [`CatalogInstrumentMaster`](crate::CatalogInstrumentMaster)), read once at [`open`];
+//!   (`derivatives/open_interest` via Lakehouse v3 manifest/views or legacy
+//!   `{root}/open_interest/YYYY-MM-DD.parquet`), read once at [`ParquetOpenInterestStore::open`];
 //!   [`write_oi_file`] is the producer.
-//!
-//! The four-quadrant buildup classification over a stored history lives in
-//! [`crate::buildup`].
 
 use std::collections::BTreeMap;
 use std::fs::File;
 use std::path::Path;
 
-use arrow::array::{Array, ArrayRef, Decimal128Array, StringArray};
+use arrow::array::{Array, Date32Array, Decimal128Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
@@ -31,13 +28,19 @@ use rust_decimal::Decimal;
 use tantra_core::{Exchange, InstrumentId, Quantity};
 use thiserror::Error;
 
+use crate::manifest::{
+    ManifestError, ManifestResolver, arrow_utf8_array, collect_parquet_files_recursive,
+};
 use crate::ports::{PortError, PortResult};
 
-/// The directory under a store root that holds the dated OI snapshot files.
+/// The legacy directory under a store root that holds dated OI snapshot files.
 pub const OI_DIR: &str = "open_interest";
 
 /// Fixed decimal scale for the persisted `open_interest` column.
 const OI_SCALE: u32 = 4;
+
+/// Days from 0001-01-01 to 1970-01-01 for Arrow `Date32` conversion.
+const UNIX_EPOCH_DAYS_FROM_CE: i64 = 719_163;
 
 /// One open-interest observation for an instrument on a calendar day.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +79,9 @@ pub enum OiStoreError {
     /// An Arrow array or batch could not be built.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A required column is missing.
     #[error("missing column: {0}")]
     MissingColumn(&'static str),
@@ -201,28 +207,51 @@ impl OpenInterestStore for InMemoryOpenInterestStore {
 }
 
 /// A durable [`OpenInterestStore`] over dated Parquet snapshot files.
-///
-/// [`open`](ParquetOpenInterestStore::open) does all I/O once, at start-up (like
-/// [`CatalogInstrumentMaster`](crate::CatalogInstrumentMaster)); every read is a pure
-/// function of the loaded rows. It is read-only after open — snapshots are persisted with
-/// [`write_oi_file`], the producer.
 #[derive(Debug, Clone, Default)]
 pub struct ParquetOpenInterestStore {
     rows: BTreeMap<(InstrumentId, NaiveDate), Quantity>,
 }
 
 impl ParquetOpenInterestStore {
-    /// Loads every `*.parquet` file under `{root}/open_interest/`.
-    ///
-    /// Files are read in name (date) order; a repeated date keeps the last file read.
-    /// A missing store directory is an error.
+    /// Loads OI snapshots from `root`, resolving v3 `derivatives/open_interest`
+    /// manifests/views first and falling back to `{root}/open_interest/`.
     pub fn open(root: &Path) -> Result<Self, OiStoreError> {
-        let dir = root.join(OI_DIR);
+        Self::open_with_options(root, None, true)
+    }
+
+    /// Loads OI snapshots at an optional v3 `reference` (`refs/tags/<tag>` or commit SHA)
+    /// and configurable legacy fallback.
+    pub fn open_with_options(
+        root: &Path,
+        reference: Option<&str>,
+        legacy_fallback: bool,
+    ) -> Result<Self, OiStoreError> {
+        let resolver = ManifestResolver::new(root).with_legacy_fallback(legacy_fallback);
         let mut paths = Vec::new();
-        for entry in std::fs::read_dir(&dir)? {
-            let path = entry?.path();
-            if path.extension().is_some_and(|ext| ext == "parquet") {
-                paths.push(path);
+        if resolver.has_v3_layout() {
+            paths = resolver.resolve_partition(
+                "derivatives",
+                "open_interest",
+                None,
+                None,
+                None,
+                None,
+                reference,
+            )?;
+        }
+        if paths.is_empty() {
+            let v3_dir = root.join("derivatives").join("open_interest");
+            if v3_dir.is_dir() {
+                collect_parquet_files_recursive(&v3_dir, &mut paths)?;
+            }
+        }
+        if paths.is_empty() && legacy_fallback {
+            let dir = root.join(OI_DIR);
+            for entry in std::fs::read_dir(&dir)? {
+                let path = entry?.path();
+                if path.extension().is_some_and(|ext| ext == "parquet") {
+                    paths.push(path);
+                }
             }
         }
         paths.sort();
@@ -350,11 +379,6 @@ fn to_scaled_i128(value: Decimal, scale: u32) -> i128 {
         .mantissa()
 }
 
-/// Rebuilds a `Decimal` from an unscaled `i128` at the fixed `scale`.
-fn from_scaled_i128(value: i128, scale: u32) -> Decimal {
-    Decimal::from_i128_with_scale(value, scale)
-}
-
 fn read_file(
     path: &Path,
     rows: &mut BTreeMap<(InstrumentId, NaiveDate), Quantity>,
@@ -365,61 +389,125 @@ fn read_file(
     for batch in reader {
         let batch = batch?;
         let schema = batch.schema();
-        let column = |name: &'static str| -> Result<ArrayRef, OiStoreError> {
-            let index = schema
-                .index_of(name)
-                .map_err(|_| OiStoreError::MissingColumn(name))?;
-            Ok(batch.column(index).clone())
-        };
-        let symbols = as_utf8(column("symbol")?.as_ref(), "symbol")?;
-        let exchanges = as_utf8(column("exchange")?.as_ref(), "exchange")?;
-        let as_ofs = as_utf8(column("as_of")?.as_ref(), "as_of")?;
-        let ois = as_decimal128(column("open_interest")?.as_ref(), "open_interest")?;
-
-        for row in 0..batch.num_rows() {
-            let date = NaiveDate::parse_from_str(as_ofs.value(row), "%Y-%m-%d").map_err(|_| {
-                OiStoreError::BadValue {
-                    column: "as_of",
-                    value: as_ofs.value(row).to_string(),
+        let opt_utf8 = |name: &'static str| -> Result<Option<StringArray>, OiStoreError> {
+            match schema.index_of(name) {
+                Ok(idx) => {
+                    let col = batch.column(idx);
+                    arrow_utf8_array(col.as_ref())
+                        .map(Some)
+                        .map_err(|_| OiStoreError::WrongType {
+                            name,
+                            got: col.data_type().clone(),
+                        })
                 }
-            })?;
-            let exchange: Exchange =
-                serde_json::from_value(serde_json::Value::String(exchanges.value(row).to_string()))
-                    .map_err(|_| OiStoreError::BadValue {
-                        column: "exchange",
-                        value: exchanges.value(row).to_string(),
+                Err(_) => Ok(None),
+            }
+        };
+        let uids = opt_utf8("instrument_uid")?;
+        let symbols = opt_utf8("symbol")?;
+        let exchanges = opt_utf8("exchange")?;
+        let as_of_col = {
+            let idx = schema
+                .index_of("as_of")
+                .map_err(|_| OiStoreError::MissingColumn("as_of"))?;
+            batch.column(idx).clone()
+        };
+        let dates = read_dates(as_of_col.as_ref(), "as_of")?;
+        let oi_idx = schema
+            .index_of("open_interest")
+            .map_err(|_| OiStoreError::MissingColumn("open_interest"))?;
+        let ois = as_decimal128(batch.column(oi_idx).as_ref(), "open_interest")?;
+        let scale = match batch.column(oi_idx).data_type() {
+            DataType::Decimal128(_, s) => (*s).max(0) as u32,
+            _ => OI_SCALE,
+        };
+
+        for (row, &date) in dates.iter().enumerate().take(batch.num_rows()) {
+            let instrument = if let (Some(sym_arr), Some(ex_arr)) = (&symbols, &exchanges) {
+                let ex_str = ex_arr.value(row);
+                let exchange: Exchange = serde_json::from_value(serde_json::Value::String(
+                    ex_str.to_string(),
+                ))
+                .map_err(|_| OiStoreError::BadValue {
+                    column: "exchange",
+                    value: ex_str.to_string(),
+                })?;
+                InstrumentId::new(exchange, sym_arr.value(row))
+            } else if let Some(uid_arr) = &uids {
+                let uid = uid_arr.value(row);
+                if let Some((ex_s, sym_s)) = uid.split_once(':') {
+                    let exchange: Exchange = ex_s.parse().map_err(|_| OiStoreError::BadValue {
+                        column: "instrument_uid",
+                        value: uid.to_string(),
                     })?;
-            let instrument = InstrumentId::new(exchange, symbols.value(row));
-            let oi = from_scaled_i128(ois.value(row), OI_SCALE);
+                    InstrumentId::new(exchange, sym_s)
+                } else {
+                    InstrumentId::new(Exchange::Nfo, uid)
+                }
+            } else {
+                return Err(OiStoreError::MissingColumn("symbol"));
+            };
+            let oi = Decimal::from_i128_with_scale(ois.value(row), scale);
             rows.insert((instrument, date), Quantity::new(oi));
         }
     }
     Ok(())
 }
 
-fn as_utf8(
-    array: &dyn Array,
-    name: &'static str,
-) -> Result<std::sync::Arc<StringArray>, OiStoreError> {
+fn read_dates(
+    array: &dyn arrow::array::Array,
+    column: &'static str,
+) -> Result<Vec<NaiveDate>, OiStoreError> {
+    let mut out = Vec::with_capacity(array.len());
     match array.data_type() {
-        DataType::Utf8 | DataType::LargeUtf8 => Ok(array
-            .as_any()
-            .downcast_ref::<StringArray>()
-            .cloned()
-            .map(std::sync::Arc::new)
-            .ok_or_else(|| OiStoreError::WrongType {
-                name,
+        DataType::Date32 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<Date32Array>()
+                .ok_or_else(|| OiStoreError::WrongType {
+                    name: column,
+                    got: array.data_type().clone(),
+                })?;
+            for row in 0..arr.len() {
+                let days_ce = i64::from(arr.value(row)) + UNIX_EPOCH_DAYS_FROM_CE;
+                let date = i32::try_from(days_ce)
+                    .ok()
+                    .and_then(NaiveDate::from_num_days_from_ce_opt)
+                    .ok_or_else(|| OiStoreError::BadValue {
+                        column,
+                        value: arr.value(row).to_string(),
+                    })?;
+                out.push(date);
+            }
+        }
+        DataType::Utf8 | DataType::LargeUtf8 => {
+            let arr = arrow_utf8_array(array).map_err(|_| OiStoreError::WrongType {
+                name: column,
                 got: array.data_type().clone(),
-            })?),
-        got => Err(OiStoreError::WrongType {
-            name,
-            got: got.clone(),
-        }),
+            })?;
+            for row in 0..arr.len() {
+                let s = arr.value(row);
+                let date = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| {
+                    OiStoreError::BadValue {
+                        column,
+                        value: s.to_string(),
+                    }
+                })?;
+                out.push(date);
+            }
+        }
+        got => {
+            return Err(OiStoreError::WrongType {
+                name: column,
+                got: got.clone(),
+            });
+        }
     }
+    Ok(out)
 }
 
 fn as_decimal128(
-    array: &dyn Array,
+    array: &dyn arrow::array::Array,
     name: &'static str,
 ) -> Result<std::sync::Arc<Decimal128Array>, OiStoreError> {
     match array.data_type() {

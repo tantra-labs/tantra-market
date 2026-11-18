@@ -1,15 +1,15 @@
 //! Fundamentals / financial-ratios projection reader (gap `tantra-data` 0020).
 //!
-//! `tantra-data` publishes two projection datasets:
-//! - `{root}/catalog/fundamentals/<filing_date>.parquet` — one financial-statement line item
-//!   per row: `filing_date` (date32), `instrument` (string), `statement_type` (string),
-//!   `period_type` (string), `period_end_date` (date32), `line_item` (string),
-//!   `value` (decimal128(18,4)) and `currency` (string). Point-in-time semantics: filter
-//!   `filing_date <= as_of` so a backtest never observes an unfiled fact.
-//! - `{root}/catalog/fundamental_ratios/<as_of_date>.parquet` — one ratio snapshot per
-//!   `(instrument, as_of_date)`: `as_of_date` (date32), `instrument` (string), `pe`, `pb`,
-//!   `ev_to_ebitda`, `dividend_yield`, `roce`, `roe`, `debt_to_equity`, `interest_coverage`
-//!   (decimal128(18,4), nullable) and `source` (string).
+//! `tantra-data` publishes two projection datasets (under Lakehouse v3 `fundamentals/fundamentals`
+//! and `fundamentals/fundamental_ratios` manifests/views or legacy `{root}/catalog/...`):
+//! - `fundamentals`: one financial-statement line item per row: `filing_date` (date32),
+//!   `instrument` (string), `statement_type` (string), `period_type` (string), `period_end_date`
+//!   (date32), `line_item` (string), `value` (decimal128(18,4)) and `currency` (string).
+//!   Point-in-time semantics: filter `filing_date <= as_of` so a backtest never observes an unfiled
+//!   fact.
+//! - `fundamental_ratios`: one ratio snapshot per `(instrument, as_of_date)`: `as_of_date` (date32),
+//!   `instrument` (string), `pe`, `pb`, `ev_to_ebitda`, `dividend_yield`, `roce`, `roe`,
+//!   `debt_to_equity`, `interest_coverage` (decimal128(18,4), nullable) and `source` (string).
 //!
 //! This module decodes those files into owned projections with exact `Decimal` values.
 
@@ -22,6 +22,8 @@ use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rust_decimal::Decimal;
 use thiserror::Error;
+
+use crate::manifest::{ManifestError, arrow_utf8_array, resolve_projection_files};
 
 /// Days from the proleptic Gregorian CE epoch (0001-01-01) to the Unix epoch
 /// (1970-01-01). Arrow's date32 type is measured from the Unix epoch while
@@ -44,6 +46,9 @@ pub enum FundamentalsProjectionError {
     /// An Arrow array conversion error occurred.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A required column is missing or of an unexpected type.
     #[error("missing column: {0}")]
     MissingColumn(&'static str),
@@ -103,62 +108,79 @@ pub struct FundamentalRatiosProjection {
     pub source: String,
 }
 
-/// Reader over the `{root}/catalog/fundamentals` + `fundamental_ratios` projection dirs.
+/// Reader over Lakehouse v3 `fundamentals/{fundamentals,fundamental_ratios}` or legacy `{root}/catalog/...`.
 #[derive(Clone)]
 pub struct FundamentalsProjectionReader {
-    statements_dir: PathBuf,
-    ratios_dir: PathBuf,
+    root: PathBuf,
+    reference: Option<String>,
+    legacy_fallback: bool,
 }
 
 impl FundamentalsProjectionReader {
-    /// Creates a reader rooted at `root`, the `tantra-data` catalog root.
+    /// Creates a reader rooted at `root`, the `tantra-data` lakehouse/catalog root.
     pub fn new(root: impl AsRef<Path>) -> Self {
-        let root = root.as_ref();
         Self {
-            statements_dir: root.join("catalog").join("fundamentals"),
-            ratios_dir: root.join("catalog").join("fundamental_ratios"),
+            root: root.as_ref().to_path_buf(),
+            reference: None,
+            legacy_fallback: true,
         }
     }
 
-    /// Reads every financial-statement line item in the projection directory.
+    /// Pins reads to a specific Lakehouse v3 commit/tag/branch reference.
+    #[must_use]
+    pub fn with_ref(mut self, reference: impl Into<String>) -> Self {
+        self.reference = Some(reference.into());
+        self
+    }
+
+    /// Enables or disables legacy `{root}/catalog/*` fallback (default `true`).
+    #[must_use]
+    pub fn with_legacy_fallback(mut self, enabled: bool) -> Self {
+        self.legacy_fallback = enabled;
+        self
+    }
+
+    /// Reads every financial-statement line item in the projection.
     ///
-    /// Returns an empty vector when the directory does not exist.
+    /// Returns an empty vector when no files exist.
     pub fn read_statements(
         &self,
     ) -> Result<Vec<FundamentalStatementProjection>, FundamentalsProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "fundamentals",
+            "fundamentals",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut statements = Vec::new();
-        for file in parquet_files(&self.statements_dir)? {
+        for file in files {
             statements.extend(decode_file(&file, statement_projections_of)?);
         }
         Ok(statements)
     }
 
-    /// Reads every point-in-time ratio snapshot in the projection directory.
+    /// Reads every point-in-time ratio snapshot in the projection.
     ///
-    /// Returns an empty vector when the directory does not exist.
+    /// Returns an empty vector when no files exist.
     pub fn read_ratios(
         &self,
     ) -> Result<Vec<FundamentalRatiosProjection>, FundamentalsProjectionError> {
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "fundamental_ratios",
+            "fundamental_ratios",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
         let mut ratios = Vec::new();
-        for file in parquet_files(&self.ratios_dir)? {
+        for file in files {
             ratios.extend(decode_file(&file, ratios_projections_of)?);
         }
         Ok(ratios)
     }
-}
-
-/// Lists the sorted `*.parquet` files under `dir`, or an empty vector when absent.
-fn parquet_files(dir: &Path) -> Result<Vec<PathBuf>, FundamentalsProjectionError> {
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "parquet"))
-        .collect();
-    files.sort();
-    Ok(files)
 }
 
 /// Decodes every batch of one parquet file through `decode`.
@@ -331,15 +353,12 @@ fn date32_array<'a>(
         .ok_or(FundamentalsProjectionError::MissingColumn(name))
 }
 
-/// Downcasts a column to a [`StringArray`], failing on a wrong type.
-fn string_array<'a>(
-    column: &'a dyn Array,
+/// Decodes a `Utf8` or `LargeUtf8` column to a [`StringArray`].
+fn string_array(
+    column: &dyn Array,
     name: &'static str,
-) -> Result<&'a StringArray, FundamentalsProjectionError> {
-    column
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or(FundamentalsProjectionError::MissingColumn(name))
+) -> Result<StringArray, FundamentalsProjectionError> {
+    arrow_utf8_array(column).map_err(|_| FundamentalsProjectionError::MissingColumn(name))
 }
 
 /// Downcasts a column to a [`Decimal128Array`], failing on a wrong type.

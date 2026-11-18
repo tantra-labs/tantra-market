@@ -1,62 +1,61 @@
 //! A dated instrument catalog.
 //!
-//! [`CatalogInstrumentMaster`] reads a directory of annotated snapshots — one
-//! Parquet file per date, named `YYYY-MM-DD.parquet` under
-//! `{root}/instruments/` — and answers the [`InstrumentMaster`] port as of a
-//! backtest date. The layout matches the `honba-data` catalog convention
-//! (dated files under a per-entity directory) so a snapshot can be produced
-//! beside the bar catalog, but the file format is defined here.
+//! [`CatalogInstrumentMaster`] reads annotated instrument snapshots — either
+//! Lakehouse v3 `reference/instruments` CAS / Hive view manifests or legacy
+//! `{root}/instruments/YYYY-MM-DD.parquet` — and answers the
+//! [`InstrumentMaster`] port as of a backtest date.
 //!
-//! Each row carries one instrument as it stood on the file's date: a record's
-//! `effective_from` is that date and its `effective_to` is unbounded. A symbol
-//! whose lot size changes, or a contract that expires, is represented by
-//! successive snapshots rather than by editing history in place.
-//!
-//! # Snapshot columns
+//! # Snapshot columns (`Zero-Floats`)
 //!
 //! `symbol`, `exchange`, `kind`, `currency`, `expiry`, `option_type`,
-//! `underlying` and `display_name` are UTF8; `lot_size`, `tick_size`,
-//! `freeze_qty` and `strike` are read as `f64` and accept any numeric Arrow
-//! type (real feeds may deliver integers as doubles). `expiry`, `strike`,
-//! `option_type`, `underlying` and `display_name` are nullable; `expiry` is a
-//! `YYYY-MM-DD` string. `display_name` is a recent addition: snapshots written
-//! before it existed still load, with every row's display name `None`.
-//!
-//! The reader is `Send + Sync` and does all I/O once, at [`open`](CatalogInstrumentMaster::open);
-//! every answer is a pure function of the loaded snapshots.
+//! `underlying` and `display_name` are UTF-8 (`Utf8` or `LargeUtf8`);
+//! `lot_size`, `tick_size`, `freeze_qty` and nullable `strike` use
+//! `Decimal128(18, 4)` in [`snapshot_schema`]. Legacy `Float64` columns are
+//! rejected by [`CatalogInstrumentMaster::open`] and accepted only via
+//! [`CatalogInstrumentMaster::open_legacy_float64`] during migration tests.
 
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use arrow::array::{Array, ArrayRef, Float64Array, StringArray};
+use arrow::array::{Array, ArrayRef, Date32Array, Decimal128Array, Float64Array, StringArray};
 use arrow::compute::cast;
 use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
 use chrono::NaiveDate;
-use tantra_core::{Currency, Exchange, InstrumentId, InstrumentKind, OptionType};
-
-use crate::ports::{DatedInstrument, InstrumentMaster, PortError, PortResult};
-use crate::wire::Instrument;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use tantra_core::{Currency, Exchange, InstrumentId, InstrumentKind, OptionType};
 use thiserror::Error;
 
-/// The directory under the catalog root that holds the dated snapshots.
+use crate::lakehouse::{PRICE_PRECISION, PRICE_SCALE};
+use crate::manifest::{
+    ManifestError, ManifestResolver, arrow_utf8_array, collect_parquet_files_recursive,
+};
+use crate::ports::{DatedInstrument, InstrumentMaster, PortError, PortResult};
+use crate::wire::Instrument;
+
+/// The directory under the legacy catalog root that holds dated snapshots.
 pub const SNAPSHOT_DIR: &str = "instruments";
 
-/// The column layout of a dated snapshot file, so producers and consumers agree.
+/// Days from 0001-01-01 to 1970-01-01 for Arrow `Date32` conversion.
+const UNIX_EPOCH_DAYS_FROM_CE: i64 = 719_163;
+
+/// The canonical Zero-Floats `Decimal128(18, 4)` column layout of a dated snapshot file.
 pub fn snapshot_schema() -> Schema {
+    let dec = DataType::Decimal128(PRICE_PRECISION, PRICE_SCALE);
     Schema::new(vec![
         Field::new("symbol", DataType::Utf8, false),
         Field::new("exchange", DataType::Utf8, false),
         Field::new("kind", DataType::Utf8, false),
         Field::new("currency", DataType::Utf8, false),
-        Field::new("lot_size", DataType::Float64, false),
-        Field::new("tick_size", DataType::Float64, false),
-        Field::new("freeze_qty", DataType::Float64, false),
+        Field::new("lot_size", dec.clone(), false),
+        Field::new("tick_size", dec.clone(), false),
+        Field::new("freeze_qty", dec.clone(), false),
         Field::new("expiry", DataType::Utf8, true),
-        Field::new("strike", DataType::Float64, true),
+        Field::new("strike", dec, true),
         Field::new("option_type", DataType::Utf8, true),
         Field::new("underlying", DataType::Utf8, true),
         Field::new("display_name", DataType::Utf8, true),
@@ -75,6 +74,9 @@ pub enum CatalogError {
     /// An Arrow array could not be converted.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A snapshot file is not named `YYYY-MM-DD.parquet`.
     #[error("snapshot file name {0:?} is not YYYY-MM-DD.parquet")]
     FileName(String),
@@ -113,31 +115,98 @@ impl From<CatalogError> for PortError {
     }
 }
 
-/// An [`InstrumentMaster`] over a directory of dated Parquet snapshots.
+/// An [`InstrumentMaster`] over dated Parquet snapshots (Lakehouse v3 or legacy directory).
 #[derive(Clone, Debug)]
 pub struct CatalogInstrumentMaster {
     snapshots: BTreeMap<NaiveDate, Vec<DatedInstrument>>,
 }
 
 impl CatalogInstrumentMaster {
-    /// Loads every `YYYY-MM-DD.parquet` snapshot under `{root}/instruments/`.
+    /// Loads instrument snapshots from `root`, resolving v3 `reference/instruments`
+    /// manifests/views first and falling back to `{root}/instruments/YYYY-MM-DD.parquet`.
     ///
-    /// This blocks on I/O once, at start-up. Files are read in name (date)
-    /// order; a repeated date keeps the last file read.
+    /// Enforces the Zero-Floats invariant: numeric columns (`lot_size`, `tick_size`,
+    /// `freeze_qty`, `strike`) must be `Decimal128` (or integer), rejecting `Float64`.
     pub fn open(root: &Path) -> Result<Self, CatalogError> {
-        let dir = root.join(SNAPSHOT_DIR);
-        let mut paths = Vec::new();
-        for entry in std::fs::read_dir(&dir)? {
-            let path = entry?.path();
-            if path.extension().is_some_and(|ext| ext == "parquet") {
-                paths.push(path);
+        Self::open_with_options(root, None, true, false)
+    }
+
+    /// Opens at a specific v3 ref (`refs/tags/<tag>` or commit SHA), resolving
+    /// `reference/instruments` from that manifest snapshot.
+    pub fn open_at_ref(
+        root: &Path,
+        reference: Option<&str>,
+        legacy_fallback: bool,
+    ) -> Result<Self, CatalogError> {
+        Self::open_with_options(root, reference, legacy_fallback, false)
+    }
+
+    /// Migration-only loader accepting legacy `Float64` snapshot columns.
+    pub fn open_legacy_float64(root: &Path) -> Result<Self, CatalogError> {
+        Self::open_with_options(root, None, true, true)
+    }
+
+    /// Configurable loader over v3 manifests (`reference/instruments`) and legacy `instruments/`.
+    pub fn open_with_options(
+        root: &Path,
+        reference: Option<&str>,
+        legacy_fallback: bool,
+        allow_legacy_float64: bool,
+    ) -> Result<Self, CatalogError> {
+        let resolver = ManifestResolver::new(root).with_legacy_fallback(legacy_fallback);
+        let mut dated_files: Vec<(NaiveDate, PathBuf)> = Vec::new();
+
+        if resolver.has_v3_layout() {
+            let (maybe_commit, pairs) = resolver.resolve_partition_entries(
+                "reference",
+                "instruments",
+                None,
+                None,
+                None,
+                None,
+                reference,
+            )?;
+            for (entry, path) in pairs {
+                let d = maybe_commit
+                    .as_ref()
+                    .map(|c| c.as_of_ist)
+                    .unwrap_or_else(|| entry.max_ts.date_naive());
+                dated_files.push((d, path));
             }
         }
-        paths.sort();
+
+        if dated_files.is_empty() {
+            let direct_v3 = root.join("reference").join("instruments");
+            if direct_v3.is_dir() {
+                let mut paths = Vec::new();
+                collect_parquet_files_recursive(&direct_v3, &mut paths)?;
+                paths.sort();
+                for path in paths {
+                    let d = snapshot_date_or_default(&path);
+                    dated_files.push((d, path));
+                }
+            }
+        }
+
+        if dated_files.is_empty() && legacy_fallback {
+            let dir = root.join(SNAPSHOT_DIR);
+            let mut paths = Vec::new();
+            for entry in std::fs::read_dir(&dir)? {
+                let path = entry?.path();
+                if path.extension().is_some_and(|ext| ext == "parquet") {
+                    paths.push(path);
+                }
+            }
+            paths.sort();
+            for path in paths {
+                let d = snapshot_date(&path)?;
+                dated_files.push((d, path));
+            }
+        }
+
         let mut snapshots = BTreeMap::new();
-        for path in paths {
-            let date = snapshot_date(&path)?;
-            snapshots.insert(date, read_snapshot(&path, date)?);
+        for (date, path) in dated_files {
+            read_snapshot_into(&path, date, allow_legacy_float64, &mut snapshots)?;
         }
         Ok(Self { snapshots })
     }
@@ -206,9 +275,6 @@ impl InstrumentMaster for CatalogInstrumentMaster {
         underlying: &InstrumentId,
         as_of: Option<NaiveDate>,
     ) -> PortResult<Vec<Instrument>> {
-        // `Some(date)` serves the in-force chain as of that date (expired
-        // contracts excluded); `None` serves the latest merged state — the
-        // live listing — matching `list_instruments`' semantics.
         let records = match as_of {
             Some(date) => self.in_force(date),
             None => self
@@ -266,8 +332,7 @@ impl InstrumentMaster for CatalogInstrumentMaster {
     }
 }
 
-/// True when the record's contract expired strictly before `as_of`; a contract
-/// is still tradable on its expiry date.
+/// True when the record's contract expired strictly before `as_of`.
 fn expired(dated: &DatedInstrument, as_of: NaiveDate) -> bool {
     dated
         .instrument
@@ -284,27 +349,36 @@ fn snapshot_date(path: &Path) -> Result<NaiveDate, CatalogError> {
     NaiveDate::parse_from_str(stem, "%Y-%m-%d").map_err(|_| CatalogError::FileName(file_name(path)))
 }
 
+fn snapshot_date_or_default(path: &Path) -> NaiveDate {
+    snapshot_date(path).unwrap_or_else(|_| NaiveDate::from_ymd_opt(1970, 1, 1).expect("epoch"))
+}
+
 fn file_name(path: &Path) -> String {
     path.file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_default()
 }
 
-fn read_snapshot(path: &Path, date: NaiveDate) -> Result<Vec<DatedInstrument>, CatalogError> {
+fn read_snapshot_into(
+    path: &Path,
+    default_date: NaiveDate,
+    allow_legacy_float64: bool,
+    snapshots: &mut BTreeMap<NaiveDate, Vec<DatedInstrument>>,
+) -> Result<(), CatalogError> {
     let file = File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
     let reader = builder.build()?;
-    let mut records = Vec::new();
     for batch in reader {
-        append_batch(&batch?, date, &mut records)?;
+        append_batch(&batch?, default_date, allow_legacy_float64, snapshots)?;
     }
-    Ok(records)
+    Ok(())
 }
 
 fn append_batch(
     batch: &RecordBatch,
-    date: NaiveDate,
-    records: &mut Vec<DatedInstrument>,
+    default_date: NaiveDate,
+    allow_legacy_float64: bool,
+    snapshots: &mut BTreeMap<NaiveDate, Vec<DatedInstrument>>,
 ) -> Result<(), CatalogError> {
     let schema = batch.schema();
     let column = |name: &'static str| -> Result<ArrayRef, CatalogError> {
@@ -313,51 +387,75 @@ fn append_batch(
             .map_err(|_| CatalogError::MissingColumn(name))?;
         Ok(batch.column(index).clone())
     };
-    let utf8 = |name: &'static str| -> Result<ArrayRef, CatalogError> {
-        as_utf8(column(name)?.as_ref(), name)
+    let utf8 = |name: &'static str| -> Result<StringArray, CatalogError> {
+        let col = column(name)?;
+        arrow_utf8_array(col.as_ref()).map_err(|_| CatalogError::WrongType {
+            name,
+            got: col.data_type().clone(),
+        })
     };
-    let number = |name: &'static str| -> Result<ArrayRef, CatalogError> {
-        as_f64(column(name)?.as_ref(), name)
+    let number = |name: &'static str| -> Result<Vec<Option<f64>>, CatalogError> {
+        read_numeric_column(column(name)?.as_ref(), name, allow_legacy_float64)
     };
 
-    let symbols = downcast_string(utf8("symbol")?, "symbol");
-    let exchanges = downcast_string(utf8("exchange")?, "exchange");
-    let kinds = downcast_string(utf8("kind")?, "kind");
-    let currencies = downcast_string(utf8("currency")?, "currency");
-    let lot_sizes = downcast_f64(number("lot_size")?, "lot_size");
-    let tick_sizes = downcast_f64(number("tick_size")?, "tick_size");
-    let freeze_qtys = downcast_f64(number("freeze_qty")?, "freeze_qty");
-    let expiries = downcast_string(utf8("expiry")?, "expiry");
-    let strikes = downcast_f64(number("strike")?, "strike");
-    let option_types = downcast_string(utf8("option_type")?, "option_type");
-    let underlyings = downcast_string(utf8("underlying")?, "underlying");
-    // `display_name` is a recent snapshot addition; older snapshots lack the
-    // column entirely, in which case every row has no display name.
+    let symbols = utf8("symbol")?;
+    let exchanges = utf8("exchange")?;
+    let kinds = utf8("kind")?;
+    let currencies = utf8("currency")?;
+    let lot_sizes = number("lot_size")?;
+    let tick_sizes = number("tick_size")?;
+    let freeze_qtys = number("freeze_qty")?;
+    let expiries = utf8("expiry")?;
+    let strikes = number("strike")?;
+    let option_types = utf8("option_type")?;
+    let underlyings = utf8("underlying")?;
     let display_names = match schema.index_of("display_name") {
-        Ok(index) => Some(downcast_string(
-            as_utf8(batch.column(index), "display_name")?,
-            "display_name",
-        )),
+        Ok(index) => {
+            let col = batch.column(index);
+            Some(
+                arrow_utf8_array(col.as_ref()).map_err(|_| CatalogError::WrongType {
+                    name: "display_name",
+                    got: col.data_type().clone(),
+                })?,
+            )
+        }
+        Err(_) => None,
+    };
+    let row_dates = match schema
+        .index_of("effective_from")
+        .or_else(|_| schema.index_of("as_of"))
+    {
+        Ok(index) => Some(read_date_column(
+            batch.column(index).as_ref(),
+            "effective_from",
+        )?),
         Err(_) => None,
     };
 
     for row in 0..batch.num_rows() {
+        let row_date = row_dates
+            .as_ref()
+            .and_then(|d| d[row])
+            .unwrap_or(default_date);
         let expiry = optional(&expiries, row, |value| parse_date(value, "expiry"))?;
         let option_type = optional(&option_types, row, parse_option_type)?;
         let display_name = display_names
             .as_ref()
             .filter(|names| !names.is_null(row) && !names.value(row).is_empty())
             .map(|names| names.value(row).to_string());
+        let lot_size = lot_sizes[row].ok_or(CatalogError::MissingColumn("lot_size"))?;
+        let tick_size = tick_sizes[row].ok_or(CatalogError::MissingColumn("tick_size"))?;
+        let freeze_qty = freeze_qtys[row].ok_or(CatalogError::MissingColumn("freeze_qty"))?;
         let instrument = Instrument::new(
             InstrumentId::new(parse_exchange(exchanges.value(row))?, symbols.value(row)),
             parse_kind(kinds.value(row))?,
             parse_currency(currencies.value(row))?,
-            lot_sizes.value(row),
-            tick_sizes.value(row),
+            lot_size,
+            tick_size,
         )
         .with_derivative(
             expiry,
-            optional_f64(&strikes, row),
+            strikes[row],
             option_type,
             optional_string(&underlyings, row),
         );
@@ -365,58 +463,128 @@ fn append_batch(
             Some(name) => instrument.with_display_name(name),
             None => instrument,
         };
-        records.push(DatedInstrument {
-            instrument,
-            freeze_qty: freeze_qtys.value(row),
-            effective_from: date,
-            effective_to: None,
-        });
+        snapshots
+            .entry(row_date)
+            .or_default()
+            .push(DatedInstrument {
+                instrument,
+                freeze_qty,
+                effective_from: row_date,
+                effective_to: None,
+            });
     }
     Ok(())
 }
 
-fn as_utf8(array: &dyn Array, name: &'static str) -> Result<ArrayRef, CatalogError> {
+fn read_numeric_column(
+    array: &dyn Array,
+    name: &'static str,
+    allow_legacy_float64: bool,
+) -> Result<Vec<Option<f64>>, CatalogError> {
+    let mut out = Vec::with_capacity(array.len());
     match array.data_type() {
-        DataType::Utf8 | DataType::LargeUtf8 => Ok(cast(array, &DataType::Utf8)?),
-        got => Err(CatalogError::WrongType {
-            name,
-            got: got.clone(),
-        }),
+        DataType::Decimal128(_, scale) => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<Decimal128Array>()
+                .ok_or_else(|| CatalogError::WrongType {
+                    name,
+                    got: array.data_type().clone(),
+                })?;
+            let scale_u32 = (*scale).max(0) as u32;
+            for i in 0..arr.len() {
+                if arr.is_null(i) {
+                    out.push(None);
+                } else {
+                    let dec = Decimal::from_i128_with_scale(arr.value(i), scale_u32);
+                    out.push(Some(dec.to_f64().unwrap_or(0.0)));
+                }
+            }
+        }
+        dt if dt.is_integer() => {
+            let casted = cast(array, &DataType::Decimal128(PRICE_PRECISION, PRICE_SCALE))?;
+            let arr = casted
+                .as_any()
+                .downcast_ref::<Decimal128Array>()
+                .expect("integer casts to Decimal128");
+            for i in 0..arr.len() {
+                if arr.is_null(i) {
+                    out.push(None);
+                } else {
+                    let dec = Decimal::from_i128_with_scale(arr.value(i), PRICE_SCALE as u32);
+                    out.push(Some(dec.to_f64().unwrap_or(0.0)));
+                }
+            }
+        }
+        DataType::Float64 | DataType::Float32 if allow_legacy_float64 => {
+            let casted = cast(array, &DataType::Float64)?;
+            let arr = casted
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .expect("cast to Float64");
+            for i in 0..arr.len() {
+                out.push((!arr.is_null(i)).then(|| arr.value(i)));
+            }
+        }
+        got => {
+            return Err(CatalogError::WrongType {
+                name,
+                got: got.clone(),
+            });
+        }
     }
+    Ok(out)
 }
 
-fn as_f64(array: &dyn Array, name: &'static str) -> Result<ArrayRef, CatalogError> {
-    if !array.data_type().is_numeric() {
-        return Err(CatalogError::WrongType {
-            name,
-            got: array.data_type().clone(),
-        });
+fn read_date_column(
+    array: &dyn Array,
+    column: &'static str,
+) -> Result<Vec<Option<NaiveDate>>, CatalogError> {
+    let mut out = Vec::with_capacity(array.len());
+    match array.data_type() {
+        DataType::Date32 => {
+            let arr = array
+                .as_any()
+                .downcast_ref::<Date32Array>()
+                .ok_or_else(|| CatalogError::WrongType {
+                    name: column,
+                    got: array.data_type().clone(),
+                })?;
+            for i in 0..arr.len() {
+                if arr.is_null(i) {
+                    out.push(None);
+                } else {
+                    let days_ce = i64::from(arr.value(i)) + UNIX_EPOCH_DAYS_FROM_CE;
+                    out.push(
+                        i32::try_from(days_ce)
+                            .ok()
+                            .and_then(NaiveDate::from_num_days_from_ce_opt),
+                    );
+                }
+            }
+        }
+        DataType::Utf8 | DataType::LargeUtf8 => {
+            let arr = arrow_utf8_array(array)?;
+            for i in 0..arr.len() {
+                if arr.is_null(i) || arr.value(i).is_empty() {
+                    out.push(None);
+                } else {
+                    out.push(Some(parse_date(arr.value(i), column)?));
+                }
+            }
+        }
+        got => {
+            return Err(CatalogError::WrongType {
+                name: column,
+                got: got.clone(),
+            });
+        }
     }
-    Ok(cast(array, &DataType::Float64)?)
-}
-
-fn downcast_string(array: ArrayRef, _name: &'static str) -> StringArray {
-    array
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .expect("as_utf8 casts to Utf8")
-        .clone()
-}
-
-fn downcast_f64(array: ArrayRef, _name: &'static str) -> Float64Array {
-    array
-        .as_any()
-        .downcast_ref::<Float64Array>()
-        .expect("as_f64 casts to Float64")
-        .clone()
+    Ok(out)
 }
 
 fn optional_string(array: &StringArray, row: usize) -> Option<String> {
     (!array.is_null(row)).then(|| array.value(row).to_string())
-}
-
-fn optional_f64(array: &Float64Array, row: usize) -> Option<f64> {
-    (!array.is_null(row)).then(|| array.value(row))
 }
 
 fn optional<T>(
@@ -443,9 +611,6 @@ fn parse_kind(value: &str) -> Result<InstrumentKind, CatalogError> {
 }
 
 fn parse_currency(value: &str) -> Result<Currency, CatalogError> {
-    // `Currency`'s derived (de)serialization expects its Rust spelling
-    // ("Inr"), not the stored ISO code ("INR"); `from_code` is the
-    // case-insensitive ISO-4217 parser `tantra_core` provides for this.
     Currency::from_code(value).map_err(|_| CatalogError::UnknownValue {
         column: "currency",
         value: value.to_string(),
@@ -453,8 +618,6 @@ fn parse_currency(value: &str) -> Result<Currency, CatalogError> {
 }
 
 fn parse_option_type(value: &str) -> Result<OptionType, CatalogError> {
-    // NSE/BSE F&O conventions spell these "CE"/"PE", not `OptionType`'s
-    // derived snake_case ("call"/"put"); try the exchange alias first.
     match value.to_uppercase().as_str() {
         "CE" => Ok(OptionType::Call),
         "PE" => Ok(OptionType::Put),
@@ -466,8 +629,6 @@ fn parse_exchange(value: &str) -> Result<Exchange, CatalogError> {
     from_json(value, "exchange")
 }
 
-/// Deserializes an enum from its wire spelling, reusing the entity's serde
-/// rules (snake_case kinds, `UPPERCASE` currencies, `CE`/`PE` option aliases).
 fn from_json<T: serde::de::DeserializeOwned>(
     value: &str,
     column: &'static str,

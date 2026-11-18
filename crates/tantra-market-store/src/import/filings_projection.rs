@@ -1,11 +1,10 @@
 //! Point-in-time filings projection reader (gap `tantra-data` 0007).
 //!
-//! `tantra-data` publishes one Parquet file per filing date under
-//! `{root}/catalog/filings/<filing_date>.parquet` with columns `filing_date`
-//! (date32), `instrument` (string), `filing_type` (string), `title` (string)
-//! and `source_url` (string, nullable). This module decodes those files into
-//! owned [`FilingProjection`] records a Rust consumer can filter point-in-time
-//! by filing date.
+//! `tantra-data` publishes filings under Lakehouse v3 (`fundamentals/filings` manifest/views) or
+//! legacy `{root}/catalog/filings/<filing_date>.parquet` with columns `filing_date` (date32),
+//! `instrument` (string), `filing_type` (string), `title` (string) and `source_url` (string,
+//! nullable). This module decodes those files into owned [`FilingProjection`] records a Rust
+//! consumer can filter point-in-time by filing date.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -15,6 +14,8 @@ use arrow::record_batch::RecordBatch;
 use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use thiserror::Error;
+
+use crate::manifest::{ManifestError, arrow_utf8_array, resolve_projection_files};
 
 /// Days from the proleptic Gregorian CE epoch (0001-01-01) to the Unix epoch
 /// (1970-01-01). Arrow's date32 type is measured from the Unix epoch while
@@ -34,6 +35,9 @@ pub enum FilingsProjectionError {
     /// An Arrow array conversion error occurred.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A required column is missing or of an unexpected type.
     #[error("missing column: {0}")]
     MissingColumn(&'static str),
@@ -55,32 +59,50 @@ pub struct FilingProjection {
     pub source_url: Option<String>,
 }
 
-/// Reader over the `{root}/catalog/filings` projection directory.
+/// Reader over Lakehouse v3 `fundamentals/filings` or legacy `{root}/catalog/filings`.
+#[derive(Clone)]
 pub struct FilingsProjectionReader {
-    dir: PathBuf,
+    root: PathBuf,
+    reference: Option<String>,
+    legacy_fallback: bool,
 }
 
 impl FilingsProjectionReader {
-    /// Creates a reader rooted at `root`, the `tantra-data` catalog root.
+    /// Creates a reader rooted at `root`, the `tantra-data` lakehouse/catalog root.
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
-            dir: root.as_ref().join("catalog").join("filings"),
+            root: root.as_ref().to_path_buf(),
+            reference: None,
+            legacy_fallback: true,
         }
     }
 
-    /// Reads every `*.parquet` file in the directory, sorted by name.
+    /// Pins reads to a specific Lakehouse v3 commit/tag/branch reference.
+    #[must_use]
+    pub fn with_ref(mut self, reference: impl Into<String>) -> Self {
+        self.reference = Some(reference.into());
+        self
+    }
+
+    /// Enables or disables legacy `{root}/catalog/filings` fallback (default `true`).
+    #[must_use]
+    pub fn with_legacy_fallback(mut self, enabled: bool) -> Self {
+        self.legacy_fallback = enabled;
+        self
+    }
+
+    /// Reads every matching `*.parquet` file, sorted by manifest/path order.
     ///
-    /// Returns an empty vector when the directory does not exist.
+    /// Returns an empty vector when no files exist.
     pub fn read(&self) -> Result<Vec<FilingProjection>, FilingsProjectionError> {
-        if !self.dir.is_dir() {
-            return Ok(Vec::new());
-        }
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&self.dir)?
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "parquet"))
-            .collect();
-        files.sort();
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "filings",
+            "filings",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
 
         let mut projections = Vec::new();
         for file in files {
@@ -156,13 +178,10 @@ fn date32_array<'a>(
         .ok_or(FilingsProjectionError::MissingColumn(name))
 }
 
-/// Downcasts a column to a [`StringArray`], failing on a wrong type.
-fn string_array<'a>(
-    column: &'a dyn Array,
+/// Decodes a `Utf8` or `LargeUtf8` column to a [`StringArray`].
+fn string_array(
+    column: &dyn Array,
     name: &'static str,
-) -> Result<&'a StringArray, FilingsProjectionError> {
-    column
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or(FilingsProjectionError::MissingColumn(name))
+) -> Result<StringArray, FilingsProjectionError> {
+    arrow_utf8_array(column).map_err(|_| FilingsProjectionError::MissingColumn(name))
 }

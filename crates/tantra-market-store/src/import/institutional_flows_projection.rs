@@ -1,12 +1,11 @@
 //! Institutional-flows projection reader (gap `tantra-data` 0017).
 //!
-//! `tantra-data` publishes one Parquet file per trade date under
-//! `{root}/catalog/institutional_flows/<trade_date>.parquet` with columns
-//! `trade_date` (date32), `participant` (string), `segment` (string),
-//! `gross_buy` (decimal128(18,4)), `gross_sell` (decimal128(18,4)), `net`
-//! (decimal128(18,4)) and `source` (string). This module decodes those files
-//! into owned [`InstitutionalFlowProjection`] records with exact `Decimal`
-//! amounts.
+//! `tantra-data` publishes institutional flows under Lakehouse v3
+//! (`disclosures/institutional_flows` manifest/views) or legacy
+//! `{root}/catalog/institutional_flows/<trade_date>.parquet` with columns `trade_date` (date32),
+//! `participant` (string), `segment` (string), `gross_buy` (decimal128(18,4)), `gross_sell`
+//! (decimal128(18,4)), `net` (decimal128(18,4)) and `source` (string). This module decodes those
+//! files into owned [`InstitutionalFlowProjection`] records with exact `Decimal` amounts.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -17,6 +16,8 @@ use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rust_decimal::Decimal;
 use thiserror::Error;
+
+use crate::manifest::{ManifestError, arrow_utf8_array, resolve_projection_files};
 
 /// Days from the proleptic Gregorian CE epoch (0001-01-01) to the Unix epoch
 /// (1970-01-01). Arrow's date32 type is measured from the Unix epoch while
@@ -39,6 +40,9 @@ pub enum InstitutionalFlowsProjectionError {
     /// An Arrow array conversion error occurred.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A required column is missing or of an unexpected type.
     #[error("missing column: {0}")]
     MissingColumn(&'static str),
@@ -69,35 +73,52 @@ pub struct InstitutionalFlowProjection {
     pub source: String,
 }
 
-/// Reader over the `{root}/catalog/institutional_flows` projection directory.
+/// Reader over Lakehouse v3 `disclosures/institutional_flows` or legacy `{root}/catalog/institutional_flows`.
 #[derive(Clone)]
 pub struct InstitutionalFlowsProjectionReader {
-    dir: PathBuf,
+    root: PathBuf,
+    reference: Option<String>,
+    legacy_fallback: bool,
 }
 
 impl InstitutionalFlowsProjectionReader {
-    /// Creates a reader rooted at `root`, the `tantra-data` catalog root.
+    /// Creates a reader rooted at `root`, the `tantra-data` lakehouse/catalog root.
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
-            dir: root.as_ref().join("catalog").join("institutional_flows"),
+            root: root.as_ref().to_path_buf(),
+            reference: None,
+            legacy_fallback: true,
         }
     }
 
-    /// Reads every `*.parquet` file in the directory, sorted by name.
+    /// Pins reads to a specific Lakehouse v3 commit/tag/branch reference.
+    #[must_use]
+    pub fn with_ref(mut self, reference: impl Into<String>) -> Self {
+        self.reference = Some(reference.into());
+        self
+    }
+
+    /// Enables or disables legacy `{root}/catalog/institutional_flows` fallback (default `true`).
+    #[must_use]
+    pub fn with_legacy_fallback(mut self, enabled: bool) -> Self {
+        self.legacy_fallback = enabled;
+        self
+    }
+
+    /// Reads every matching `*.parquet` file, sorted by manifest/path order.
     ///
-    /// Returns an empty vector when the directory does not exist.
+    /// Returns an empty vector when no files exist.
     pub fn read(
         &self,
     ) -> Result<Vec<InstitutionalFlowProjection>, InstitutionalFlowsProjectionError> {
-        if !self.dir.is_dir() {
-            return Ok(Vec::new());
-        }
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&self.dir)?
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "parquet"))
-            .collect();
-        files.sort();
+        let files = resolve_projection_files(
+            &self.root,
+            "disclosures",
+            "institutional_flows",
+            "institutional_flows",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
 
         let mut flows = Vec::new();
         for file in files {
@@ -182,15 +203,12 @@ fn date32_array<'a>(
         .ok_or(InstitutionalFlowsProjectionError::MissingColumn(name))
 }
 
-/// Downcasts a column to a [`StringArray`], failing on a wrong type.
-fn string_array<'a>(
-    column: &'a dyn Array,
+/// Decodes a `Utf8` or `LargeUtf8` column to a [`StringArray`].
+fn string_array(
+    column: &dyn Array,
     name: &'static str,
-) -> Result<&'a StringArray, InstitutionalFlowsProjectionError> {
-    column
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or(InstitutionalFlowsProjectionError::MissingColumn(name))
+) -> Result<StringArray, InstitutionalFlowsProjectionError> {
+    arrow_utf8_array(column).map_err(|_| InstitutionalFlowsProjectionError::MissingColumn(name))
 }
 
 /// Downcasts a column to a [`Decimal128Array`], failing on a wrong type.

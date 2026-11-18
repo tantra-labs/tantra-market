@@ -1,12 +1,11 @@
 //! Point-in-time corporate-actions projection reader (gap `tantra-data` 0008).
 //!
-//! `tantra-data` publishes one Parquet file per ex-date under
-//! `{root}/catalog/corporate_actions/<ex_date>.parquet` with columns `ex_date`
-//! (date32), `instrument` (string), `action_type` (string), `old_shares`
-//! (int32, nullable), `new_shares` (int32, nullable), `per_share`
-//! (decimal128(18,4), nullable), `issue_price` (decimal128(18,4), nullable)
-//! and `currency` (string). This module decodes those files into owned
-//! [`CorporateActionProjection`] records with exact `Decimal` amounts.
+//! `tantra-data` publishes corporate actions under Lakehouse v3 (`fundamentals/corporate_actions`
+//! manifest/views) or legacy `{root}/catalog/corporate_actions/<ex_date>.parquet` with columns
+//! `ex_date` (date32), `instrument` (string), `action_type` (string), `old_shares` (int32,
+//! nullable), `new_shares` (int32, nullable), `per_share` (decimal128(18,4), nullable),
+//! `issue_price` (decimal128(18,4), nullable) and `currency` (string). This module decodes those
+//! files into owned [`CorporateActionProjection`] records with exact `Decimal` amounts.
 
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -17,6 +16,8 @@ use chrono::NaiveDate;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use rust_decimal::Decimal;
 use thiserror::Error;
+
+use crate::manifest::{ManifestError, arrow_utf8_array, resolve_projection_files};
 
 /// Days from the proleptic Gregorian CE epoch (0001-01-01) to the Unix epoch
 /// (1970-01-01). Arrow's date32 type is measured from the Unix epoch while
@@ -39,6 +40,9 @@ pub enum CorporateActionsProjectionError {
     /// An Arrow array conversion error occurred.
     #[error("arrow error: {0}")]
     Arrow(#[from] arrow::error::ArrowError),
+    /// A Lakehouse v3 manifest error occurred.
+    #[error("manifest error: {0}")]
+    Manifest(#[from] ManifestError),
     /// A decimal conversion error occurred.
     #[error("decimal error: {0}")]
     Decimal(#[from] rust_decimal::Error),
@@ -68,32 +72,50 @@ pub struct CorporateActionProjection {
     pub currency: String,
 }
 
-/// Reader over the `{root}/catalog/corporate_actions` projection directory.
+/// Reader over Lakehouse v3 `fundamentals/corporate_actions` or legacy `{root}/catalog/corporate_actions`.
+#[derive(Clone)]
 pub struct CorporateActionsProjectionReader {
-    dir: PathBuf,
+    root: PathBuf,
+    reference: Option<String>,
+    legacy_fallback: bool,
 }
 
 impl CorporateActionsProjectionReader {
-    /// Creates a reader rooted at `root`, the `tantra-data` catalog root.
+    /// Creates a reader rooted at `root`, the `tantra-data` lakehouse/catalog root.
     pub fn new(root: impl AsRef<Path>) -> Self {
         Self {
-            dir: root.as_ref().join("catalog").join("corporate_actions"),
+            root: root.as_ref().to_path_buf(),
+            reference: None,
+            legacy_fallback: true,
         }
     }
 
-    /// Reads every `*.parquet` file in the directory, sorted by name.
+    /// Pins reads to a specific Lakehouse v3 commit/tag/branch reference.
+    #[must_use]
+    pub fn with_ref(mut self, reference: impl Into<String>) -> Self {
+        self.reference = Some(reference.into());
+        self
+    }
+
+    /// Enables or disables legacy `{root}/catalog/corporate_actions` fallback (default `true`).
+    #[must_use]
+    pub fn with_legacy_fallback(mut self, enabled: bool) -> Self {
+        self.legacy_fallback = enabled;
+        self
+    }
+
+    /// Reads every matching `*.parquet` file, sorted by manifest/path order.
     ///
-    /// Returns an empty vector when the directory does not exist.
+    /// Returns an empty vector when no files exist.
     pub fn read(&self) -> Result<Vec<CorporateActionProjection>, CorporateActionsProjectionError> {
-        if !self.dir.is_dir() {
-            return Ok(Vec::new());
-        }
-        let mut files: Vec<PathBuf> = std::fs::read_dir(&self.dir)?
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "parquet"))
-            .collect();
-        files.sort();
+        let files = resolve_projection_files(
+            &self.root,
+            "fundamentals",
+            "corporate_actions",
+            "corporate_actions",
+            self.reference.as_deref(),
+            self.legacy_fallback,
+        )?;
 
         let mut actions = Vec::new();
         for file in files {
@@ -194,15 +216,12 @@ fn date32_array<'a>(
         .ok_or(CorporateActionsProjectionError::MissingColumn(name))
 }
 
-/// Downcasts a column to a [`StringArray`], failing on a wrong type.
-fn string_array<'a>(
-    column: &'a dyn Array,
+/// Decodes a `Utf8` or `LargeUtf8` column to a [`StringArray`].
+fn string_array(
+    column: &dyn Array,
     name: &'static str,
-) -> Result<&'a StringArray, CorporateActionsProjectionError> {
-    column
-        .as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or(CorporateActionsProjectionError::MissingColumn(name))
+) -> Result<StringArray, CorporateActionsProjectionError> {
+    arrow_utf8_array(column).map_err(|_| CorporateActionsProjectionError::MissingColumn(name))
 }
 
 /// Downcasts a column to an [`Int32Array`], failing on a wrong type.
