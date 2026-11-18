@@ -33,6 +33,7 @@ pub mod null;
 pub mod profile;
 pub mod rules;
 pub mod settlement;
+pub mod studies;
 pub mod universes;
 
 #[cfg(feature = "india")]
