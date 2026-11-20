@@ -11,7 +11,7 @@ Per workspace rule `.agents/rules/gap-tracking.md`:
 |---|-------|--------------|--------|
 | [0002](0002-chart-pattern-analyzer.md) | Chart Pattern Analyzer — geometric patterns (flag, triangle, rectangle/Darvas, double top/bottom, H&S, wedge, cup-and-handle, VCP) + multi-bar candlesticks, emitting breakout/invalidation/measured-target geometry | `tantra-market-signals` | Proposed — root plan 0008 §3; wire type in `tantra-core` plan 0005 §2a |
 | [0003](0003-experimental-analysis-period-and-markov-engine.md) | Regime-Aware Period Slicer & Statistical Markov Engine (`PeriodSchedule` + `tantra-market-finance::studies`) | `tantra-market-finance` | Proposed (2026-11-18) — Track **T20.2**, root plan [`0014`](../../../docs/plans/0014-experimental-analysis-statistical-workbench.md); depends on `tantra-data` plan `0010` |
-| [0005](0005-concept-indicator-library.md) | Concept & Indicator Library (`tantra-market-library`: manifests, registry, DAG, `DynIndicator`/`IndicatorFrame`, ATR Decimal migration, Predictive Ranges, detectors) | `tantra-market-library`, `tantra-market-indicators`, `tantra-market-signals` | Proposed (2026-11-20) — root plan 0016 / T22.1–T22.2, design only |
+| [0005](0005-concept-indicator-library.md) | Concept & Indicator Library (`tantra-market-library`: manifests, registry, DAG, `DynIndicator`/`IndicatorFrame`, ATR Decimal migration, Predictive Ranges, detectors) | `tantra-market-library`, `tantra-market-indicators`, `tantra-market-signals` | Deferred (2026-11-20) — library implemented in Python (`tantra-strategies` plan 0005); optional Rust port of hot indicators only; root plan 0016 |
 
 ## Implemented Plans
 

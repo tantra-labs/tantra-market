@@ -2,6 +2,8 @@
 
 **Status**: open
 
+> **Note (2026-11-20)**: no longer blocking Track T22 — the library is implemented in Python (`tantra-strategies` plan 0005) and is Decimal-native. Kept open as general zero-floats debt in `tantra-market-indicators`.
+
 ## What's stubbed or hardcoded
 
 `crates/tantra-market-indicators/src/atr.rs` computes in `f64` (`prev_close: Option<f64>`, `seed_trs: Vec<f64>`,

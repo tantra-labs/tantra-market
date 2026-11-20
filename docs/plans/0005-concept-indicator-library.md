@@ -1,6 +1,11 @@
 # 0005 — Concept & Indicator Library (`tantra-market-library`)
 
-**Status**: Proposed (2026-11-20) — design only. Parent: root plan 0016 (Track T22, phases T22.1–T22.2).
+**Status**: Deferred (2026-11-20) — optional Rust port only. Parent: root plan 0016.
+
+> **Superseded/Deferred**: the concept & indicator library is implemented in Python in `tantra-strategies`
+> plan 0005 (`tantra_library` + `tantra-library-mcp`). This plan is now only an OPTIONAL Rust port of hot
+> indicators (Predictive Ranges, VIDYA) if profiling shows Python is too slow. The content below is kept for
+> that purpose and is deferred.
 
 ## 0. Executive Summary & Objective
 
