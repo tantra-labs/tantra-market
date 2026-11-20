@@ -18,7 +18,7 @@ change is tracked in `tantra-core` (to confirm in T22.1) and is not specified he
 - `render.rs` exposes `CATALOG: [&str; 8]` (names only); `tantra-market-signals::catalog::DETECTORS` lists 8
   `DetectorSpec { name, codes }` unlinked to indicators.
 - `atr.rs` is `f64` internally (`prev_close`, `seed_trs`, `atr`; `update_hlc(f64,f64,f64) -> Option<f64>`),
-  violating Zero-Floats and blocking price-level composites. Tracked in gap 0008 (filed with this plan).
+  violating Zero-Floats and blocking price-level composites. Tracked in gap 0009 (filed with this plan).
 - Submodules `momentum/ trend/ volatility/ volume/ india/ gpu/` are 1-line stubs; ~38 flat files hold the math.
 
 ## 2. Component Specifications & Phases
@@ -67,7 +67,7 @@ pub fn evaluate(reg: &Registry, id: &str, params: &ParamValues, bars: &[Bar])
 Build-time validation (a `tests/registry.rs` test and a `Registry::builtin()` check): unique ids; kind-prefix
 matches `kind`; every `depends_on`/`related`/`concepts` target exists; DAG acyclic; max depth <= 8;
 param `default` within `[min,max]`; every `computable` entry has a factory; every non-`family`/`concept`
-entry has a non-empty body; `numeric: f64-legacy` entries are flagged and count-checked against gap 0008.
+entry has a non-empty body; `numeric: f64-legacy` entries are flagged and count-checked against gap 0009.
 
 ### 2.3 Dynamic evaluation
 
@@ -118,12 +118,12 @@ Change `Atr` to `rust_decimal::Decimal` fields (`prev_close: Option<Decimal>`, `
 Wilder RMA stays `(prev*(n-1)+tr)/n` in Decimal; rounding policy fixed (no implicit quantisation; document
 scale). Callers of the f64 signature are listed in T22.1 (to confirm) and migrated in the same change; a
 parity test compares the old f64 goldens within 1e-9 on the fixed fixture before the f64 path is deleted.
-Closes the `atr.rs` row of gap 0008.
+Closes the `atr.rs` row of gap 0009.
 
 ### 2.7 New indicators (T22.2) — Decimal-native, `numeric: decimal`
 
 - `ind.vidya` — Chande VIDYA: `alpha = 2/(n+1)`, `k = |CMO(m)|/100`, `v = alpha*k*src + (1-alpha*k)*v_prev`; builds on `ind.cmo`
-  (cmo.rs is f64 -> listed in gap 0008; VIDYA either migrates CMO or uses a Decimal sibling — decision in T22.2).
+  (cmo.rs is f64 -> listed in gap 0009; VIDYA either migrates CMO or uses a Decimal sibling — decision in T22.2).
 - `ind.volume-delta-pct` — `(sum(up_vol) - sum(down_vol)) / sum(vol)` over window `n`, in `[-1,1]` (shown as %);
   `volume_quality: real`.
 - `ind.alligator` — SMMA(hl2) jaw/teeth/lips with periods 13/8/5 and forward shifts 8/5/3 (params), shift
