@@ -96,7 +96,8 @@ impl Indicator for Supertrend {
             return None;
         }
 
-        let atr_val = self.atr.value().unwrap();
+        // presentation boundary: supertrend bands are f64-legacy (gap 0009)
+        let atr_val = self.atr.value().and_then(|v| v.to_f64()).unwrap_or(0.0);
         let basic_upper = hl2 + self.multiplier * atr_val;
         let basic_lower = hl2 - self.multiplier * atr_val;
 

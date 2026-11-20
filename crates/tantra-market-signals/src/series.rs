@@ -4,6 +4,7 @@
 //! indicator has primed, so a detector naturally cannot fire before its inputs are warm. Built
 //! with the incremental indicators in `tantra-indicators`, so the computation is causal.
 
+use rust_decimal::prelude::ToPrimitive;
 use tantra_core::Bar;
 use tantra_market_indicators::{Atr, Cpr, Ema, Indicator, Macd, MacdValue, Rsi, Sma, Vwap};
 
@@ -93,7 +94,8 @@ impl Series {
             cpr_pivot.push(cpr_ind.update(bar));
             cpr_bc.push(cpr_ind.bc());
             cpr_tc.push(cpr_ind.tc());
-            atr.push(atr_ind.update(bar));
+            // signal math is f64-legacy: convert at the boundary (tantra-market gap 0009)
+            atr.push(atr_ind.update(bar).and_then(|v| v.to_f64()));
         }
 
         Self {

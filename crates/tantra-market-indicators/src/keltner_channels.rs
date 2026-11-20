@@ -54,7 +54,8 @@ impl KeltnerChannels {
         // Both the EMA and the ATR must see every bar, even before either has
         // primed.
         let middle = self.ema.update(close);
-        let atr = self.atr.update_hlc(high, low, close);
+        // f64-legacy: docs/gaps/0009-f64-indicator-internals.md
+        let atr = self.atr.update_hlc_f64(high, low, close);
         let (m, a) = (middle?, atr?);
         let v = KeltnerValue {
             middle: m,

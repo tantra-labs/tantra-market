@@ -13,8 +13,8 @@ audit list to be completed in T22.1.
 
 | File | Status |
 |---|---|
-| `atr.rs` | **blocking** — must be Decimal before `ind.predictive-ranges` ships (root plan 0016 §4.3) |
-| `cmo.rs` | f64-legacy candidate (VIDYA dependency; decide in plan 0005 T22.2) |
+| `atr.rs` | **migrated to Decimal 2026-11-20** (golden parity with `tantra_library`, `tests/golden_atr_cmo.rs`). `update_hlc_f64` is a presentation shim; keltner/supertrend/render/signals series/chat payloads still convert at the presentation boundary |
+| `cmo.rs` | **migrated to Decimal 2026-11-20** (golden parity with `tantra_library`; `update_f64` shim) |
 | `adx.rs, rsi.rs, stochastic.rs, cci.rs, bollinger.rs, keltner_channels.rs, supertrend.rs, parabolic_sar.rs, mfi.rs, ...` | f64-legacy candidates — audit list to be completed in T22.1 |
 
 ## Why

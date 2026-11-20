@@ -1,7 +1,9 @@
 //! Unit tests for `crate::atr`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::hlc;
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Atr, Indicator};
 
 #[test]
@@ -17,9 +19,9 @@ fn seeds_with_mean_true_range_then_uses_wilder_smoothing() {
     // First bar: high - low = 2.
     assert_eq!(a.update(&hlc(10.0, 8.0, 9.0)), None);
     // TR = max(3, |12 - 9|, |9 - 9|) = 3; seed = (2 + 3) / 2.
-    assert_close(a.update(&hlc(12.0, 9.0, 11.0)).unwrap(), 2.5);
+    assert_eq!(a.update(&hlc(12.0, 9.0, 11.0)), Some(dec!(2.5)));
     // TR = max(1, |11 - 11|, |10 - 11|) = 1; (2.5 * 1 + 1) / 2.
-    assert_close(a.update(&hlc(11.0, 10.0, 10.5)).unwrap(), 1.75);
+    assert_eq!(a.update(&hlc(11.0, 10.0, 10.5)), Some(dec!(1.75)));
 }
 
 #[test]
@@ -29,7 +31,7 @@ fn reset_clears_the_previous_close() {
     a.reset();
     assert_eq!(a.value(), None);
     // Without a previous close the gap to 9.5 is ignored: TR = 1.
-    assert_close(a.update(&hlc(20.0, 19.0, 19.5)).unwrap(), 1.0);
+    assert_eq!(a.update(&hlc(20.0, 19.0, 19.5)), Some(Decimal::ONE));
 }
 
 #[test]
@@ -43,7 +45,20 @@ fn update_hlc_matches_update_with_a_bar() {
     let mut by_bar = Atr::new(2);
     let mut by_hlc = Atr::new(2);
     for (h, l, c) in bars {
-        assert_eq!(by_hlc.update_hlc(h, l, c), by_bar.update(&hlc(h, l, c)));
+        let (dh, dl, dc) = (
+            Decimal::try_from(h).unwrap(),
+            Decimal::try_from(l).unwrap(),
+            Decimal::try_from(c).unwrap(),
+        );
+        assert_eq!(by_hlc.update_hlc(dh, dl, dc), by_bar.update(&hlc(h, l, c)));
     }
     assert_eq!(by_hlc.value(), by_bar.value());
+}
+
+#[test]
+fn f64_shim_matches_and_rejects_non_finite_without_mutation() {
+    let mut a = Atr::new(1);
+    assert_eq!(a.update_hlc_f64(f64::NAN, 1.0, 1.0), None);
+    assert_eq!(a.value(), None);
+    assert_eq!(a.update_hlc_f64(10.0, 9.0, 9.5), Some(1.0));
 }

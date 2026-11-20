@@ -1,10 +1,12 @@
 //! Average True Range (Wilder).
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tantra_core::Bar;
 
 use crate::indicator::Indicator;
 
-/// Wilder's Average True Range over `period` bars.
+/// Wilder's Average True Range over `period` bars, computed in `Decimal`.
 ///
 /// True range for a bar is:
 ///
@@ -19,28 +21,28 @@ use crate::indicator::Indicator;
 /// use tantra_market_indicators::{Atr, Indicator};
 /// use rust_decimal::Decimal;
 ///
-/// fn bar(h: f64, l: f64, c: f64) -> Bar {
+/// fn bar(h: i64, l: i64, c: i64) -> Bar {
 ///     Bar {
 ///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from_f64_retain(c).unwrap()),
-///         high: Price::new(Decimal::from_f64_retain(h).unwrap()),
-///         low: Price::new(Decimal::from_f64_retain(l).unwrap()),
-///         close: Price::new(Decimal::from_f64_retain(c).unwrap()),
+///         open: Price::new(Decimal::from(c)),
+///         high: Price::new(Decimal::from(h)),
+///         low: Price::new(Decimal::from(l)),
+///         close: Price::new(Decimal::from(c)),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
 /// }
 ///
 /// let mut atr = Atr::new(2);
-/// assert_eq!(atr.update(&bar(10.0, 8.0, 9.0)), None);
-/// assert_eq!(atr.update(&bar(11.0, 9.0, 10.0)), Some(2.0));
+/// assert_eq!(atr.update(&bar(10, 8, 9)), None);
+/// assert_eq!(atr.update(&bar(11, 9, 10)), Some(Decimal::from(2)));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Atr {
     period: usize,
-    prev_close: Option<f64>,
-    seed_trs: Vec<f64>,
-    atr: Option<f64>,
+    prev_close: Option<Decimal>,
+    seed_trs: Vec<Decimal>,
+    atr: Option<Decimal>,
 }
 
 impl Atr {
@@ -67,58 +69,63 @@ impl Atr {
     /// Feeds one bar given as raw `high`, `low`, `close` and returns the ATR once warmed up.
     ///
     /// Identical to [`Indicator::update`] on a bar with those fields; it exists so callers that
-    /// only hold price arrays (e.g. the WASM surface) need not build a `Bar``.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<f64> {
+    /// only hold price arrays need not build a `Bar`.
+    pub fn update_hlc(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
         let tr = Self::true_range(high, low, self.prev_close);
         self.prev_close = Some(close);
         self.push_tr(tr)
     }
 
-    fn push_tr(&mut self, tr: f64) -> Option<f64> {
-        if self.atr.is_none() {
-            self.seed_trs.push(tr);
-            if self.seed_trs.len() == self.period {
-                let n = self.period as f64;
-                let seed = self.seed_trs.iter().sum::<f64>() / n;
-                self.atr = Some(seed);
-                return Some(seed);
-            }
-            return None;
-        }
-
-        let n = self.period as f64;
-        let prev = self.atr.unwrap();
-        let next = (prev * (n - 1.0) + tr) / n;
-        self.atr = Some(next);
-        Some(next)
+    /// `f64` presentation shim over [`Atr::update_hlc`].
+    ///
+    /// For chart/WASM presentation surfaces only; financial math must use
+    /// [`Atr::update_hlc`]. Non-finite inputs return `None` without mutating state.
+    pub fn update_hlc_f64(&mut self, high: f64, low: f64, close: f64) -> Option<f64> {
+        let h = Decimal::try_from(high).ok()?;
+        let l = Decimal::try_from(low).ok()?;
+        let c = Decimal::try_from(close).ok()?;
+        self.update_hlc(h, l, c).and_then(|v| v.to_f64())
     }
 
-    fn true_range(high: f64, low: f64, prev_close: Option<f64>) -> f64 {
+    fn push_tr(&mut self, tr: Decimal) -> Option<Decimal> {
+        let n = Decimal::from(self.period);
+        match self.atr {
+            None => {
+                self.seed_trs.push(tr);
+                if self.seed_trs.len() == self.period {
+                    let seed = self.seed_trs.iter().copied().sum::<Decimal>() / n;
+                    self.seed_trs.clear();
+                    self.atr = Some(seed);
+                    return Some(seed);
+                }
+                None
+            }
+            Some(prev) => {
+                let next = (prev * (n - Decimal::ONE) + tr) / n;
+                self.atr = Some(next);
+                Some(next)
+            }
+        }
+    }
+
+    fn true_range(high: Decimal, low: Decimal, prev_close: Option<Decimal>) -> Decimal {
         let hl = high - low;
         match prev_close {
             None => hl,
-            Some(pc) => {
-                let hc = (high - pc).abs();
-                let lc = (low - pc).abs();
-                hl.max(hc).max(lc)
-            }
+            Some(pc) => hl.max((high - pc).abs()).max((low - pc).abs()),
         }
     }
 }
 
 impl Indicator for Atr {
     type Input<'a> = &'a Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &Bar) -> Option<f64> {
-        self.update_hlc(
-            bar.high.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.low.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.close.0.to_string().parse::<f64>().unwrap_or(0.0),
-        )
+    fn update(&mut self, bar: &Bar) -> Option<Decimal> {
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.atr
     }
 

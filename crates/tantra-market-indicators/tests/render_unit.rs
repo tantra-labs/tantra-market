@@ -55,7 +55,7 @@ fn series_of(name: &str, inputs: &[f64]) -> Vec<f64> {
             let mut ind = Atr::new(14);
             inputs
                 .iter()
-                .map(|&x| nan(ind.update_hlc(x, x, x)))
+                .map(|&x| nan(ind.update_hlc_f64(x, x, x)))
                 .collect()
         }
         "williams_r" => {
