@@ -14,6 +14,7 @@ at the workspace root for cross-repo visibility.
 |---|---|---|
 | [0003](0003-broker-websocket-feed-stubs.md) | Real broker WS feeds — **feature tracker, 2 of 5 shipped**: `tantra-market-dhan` (DhanHQ v2, commit `fb82571`) and `tantra-market-zerodha` (Kite Connect 3, commit `ad79205`) are real `MarketDataFeed` implementations; `upstox`, `fyers`, `angelone` remain to be re-added as real crates when their wire protocols are implemented | `crates/tantra-market-{dhan,zerodha}` + re-added on implementation |
 | [0007](0007-adr-pct-and-chandelier-exit.md) | ADR%(20) and Chandelier Exit indicators missing (trade-signal-generator presets; root plan 0008) | `crates/tantra-market-indicators` |
+| [0008](0008-f64-indicator-internals.md) | f64 indicator internals — `atr.rs` blocking (Predictive Ranges); others f64-legacy, audit in T22.1 (root plan 0016 §4.3) | `crates/tantra-market-indicators` |
 
 ## Closed gaps
 
