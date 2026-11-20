@@ -16,6 +16,10 @@ rust_decimal = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
+# Enables getrandom's `wasm_js` backend for `wasm32-unknown-unknown` (pulled via tantra-core -> uuid).
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+getrandom = { version = "0.4", features = ["wasm_js"] }
+
 [dev-dependencies]
 rust_decimal_macros = { workspace = true }
 serde_json = { workspace = true }

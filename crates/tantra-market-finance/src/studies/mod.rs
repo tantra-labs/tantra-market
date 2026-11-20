@@ -12,11 +12,13 @@
 //! - Cross-asset N×N Pearson/Spearman correlation, rolling beta & pair spread (`correlation`)
 //! - Multi-leg F&O options overlay & strike lab, Markov+vol analog forecasting, and
 //!   `CAR[-20d, +20d]` event study (`options_events`)
+//! - Composable strategy, optimization-loop & expiry-hedge primitives (`pipeline`)
 
 pub mod correlation;
 pub mod distributions;
 pub mod intraday_orb;
 pub mod options_events;
+pub mod pipeline;
 pub mod returns;
 pub mod schedule;
 pub mod spreads;
