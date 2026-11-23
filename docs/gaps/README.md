@@ -15,6 +15,13 @@ at the workspace root for cross-repo visibility.
 | [0003](0003-broker-websocket-feed-stubs.md) | Real broker WS feeds — **feature tracker, 2 of 5 shipped**: `tantra-market-dhan` (DhanHQ v2, commit `fb82571`) and `tantra-market-zerodha` (Kite Connect 3, commit `ad79205`) are real `MarketDataFeed` implementations; `upstox`, `fyers`, `angelone` remain to be re-added as real crates when their wire protocols are implemented | `crates/tantra-market-{dhan,zerodha}` + re-added on implementation |
 | [0007](0007-adr-pct-and-chandelier-exit.md) | ADR%(20) and Chandelier Exit indicators missing (trade-signal-generator presets; root plan 0008) | `crates/tantra-market-indicators` |
 | [0009](0009-f64-indicator-internals.md) | f64 indicator internals — general zero-floats debt; no longer blocking T22 (Python library is Decimal-native, `tantra-strategies` plan 0005) | `crates/tantra-market-indicators` |
+| [0010](0010-ws-client-resilience-and-token-logging.md) | WsClient never resubscribes, enforces no dead-connection timeout, cannot refresh auth, and logs the token (critical) | `crates/tantra-market-core`, `crates/tantra-market-{dhan,zerodha}` |
+| [0011](0011-feed-exact-decimal-and-exchange-ts.md) | Dhan/Kite decode prices via `from_f64_retain`; snapshots forge `exchange_ts = now` (high) | `crates/tantra-market-{dhan,zerodha}` |
+| [0012](0012-coalescer-tick-loss.md) | `drain_coalesced` drops ticks it could not send; coalescer and enricher are dead code (high) | `crates/tantra-market-core` |
+| [0013](0013-store-memory-bounds-and-object-store.md) | Tick/OI/instrument stores load whole datasets into RAM; no object-store abstraction (high) | `crates/tantra-market-store` |
+| [0014](0014-lakehouse-writer-ref-cas.md) | Lakehouse v3 dual writers: non-CAS ref update, TOCTOU part naming, duplicated schemas (high) | `crates/tantra-market-store` |
+| [0015](0015-instrument-master-keying.md) | Normalizer `InstrumentMaster` indexes by bare symbol and empty-string token (high) | `crates/tantra-market-normalizer` |
+| [0016](0016-rest-client-timeouts-and-errors.md) | Snapshot REST clients: per-call client, no timeout, all non-2xx mapped to `Auth` (medium) | `crates/tantra-market-{dhan,zerodha}` |
 
 ## Closed gaps
 
