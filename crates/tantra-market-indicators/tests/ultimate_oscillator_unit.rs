@@ -1,19 +1,20 @@
 //! Unit tests for `crate::ultimate_oscillator`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc};
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Indicator, UltimateOscillator};
 
 #[test]
 fn constant_bars_give_the_neutral_fifty() {
     // BP = 10 - min(9, 10) = 1; TR = max(11, 10) - min(9, 10) = 2; every
-    // average is 0.5, so UO = (4·0.5 + 2·0.5 + 0.5) / 7 · 100 = 50.
+    // average is 0.5, so UO = (4*0.5 + 2*0.5 + 0.5) / 7 * 100 = 50.
     let mut u = UltimateOscillator::new();
     let mut last = None;
     for _ in 0..40 {
         last = u.update(&hlc(11.0, 9.0, 10.0));
     }
-    assert_close(last.unwrap(), 50.0);
+    assert_dec_close(last.unwrap(), dec!(50));
 }
 
 #[test]

@@ -5,6 +5,7 @@
 //! streaming indicators and a pure O(n) reference read from this one file.
 
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use serde_json::Value;
 use tantra_core::{Bar, Exchange, InstrumentId, Price, Quantity};
 use tantra_market_indicators::{Donchian, DonchianValue, Indicator, Stochastic, WilliamsR};
@@ -23,12 +24,12 @@ fn bar(h: f64, l: f64, c: f64) -> Bar {
         low: Price::new(Decimal::from_f64_retain(l).unwrap_or_default()),
         close: Price::new(Decimal::from_f64_retain(c).unwrap_or_default()),
         volume: Quantity::from_u64(1),
-        timestamp: chrono::Utc::now(),
+        timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid ts"),
     }
 }
 
-fn close(a: f64, b: f64) -> bool {
-    (a - b).abs() < 1e-6
+fn close(a: Decimal, b: f64) -> bool {
+    (a.to_f64().unwrap() - b).abs() < 1e-6
 }
 
 fn bars_from_inputs(inputs: &[Value]) -> Vec<Bar> {

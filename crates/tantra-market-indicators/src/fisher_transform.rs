@@ -2,9 +2,12 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::{Decimal, MathematicalOps};
+
 use crate::indicator::Indicator;
 
-/// Fisher Transform (John Ehlers).
+/// Fisher Transform (John Ehlers), computed in `Decimal`.
 ///
 /// Maps price into an approximately Gaussian (normal) series via
 /// `0.5 * ln((1 + raw) / (1 − raw))`, where `raw` is the most recent price
@@ -18,9 +21,9 @@ use crate::indicator::Indicator;
 #[derive(Clone, Debug)]
 pub struct FisherTransform {
     period: usize,
-    buf: VecDeque<f64>,
-    prev_raw: f64,
-    last: Option<f64>,
+    buf: VecDeque<Decimal>,
+    prev_raw: Decimal,
+    last: Option<Decimal>,
 }
 
 impl FisherTransform {
@@ -34,7 +37,7 @@ impl FisherTransform {
         Self {
             period,
             buf: VecDeque::with_capacity(period),
-            prev_raw: 0.0,
+            prev_raw: Decimal::ZERO,
             last: None,
         }
     }
@@ -43,13 +46,22 @@ impl FisherTransform {
     pub fn period(&self) -> usize {
         self.period
     }
+
+    /// `f64` presentation shim over [`Indicator::update`].
+    ///
+    /// For chart presentation surfaces only; financial math must use the `Decimal` input.
+    /// Non-finite inputs return `None` without mutating state.
+    pub fn update_f64(&mut self, price: f64) -> Option<f64> {
+        let p = Decimal::try_from(price).ok()?;
+        self.update(p).and_then(|v| v.to_f64())
+    }
 }
 
 impl Indicator for FisherTransform {
-    type Input<'a> = f64;
-    type Output = f64;
+    type Input<'a> = Decimal;
+    type Output = Decimal;
 
-    fn update(&mut self, price: f64) -> Option<f64> {
+    fn update(&mut self, price: Decimal) -> Option<Decimal> {
         self.buf.push_back(price);
         if self.buf.len() > self.period {
             self.buf.pop_front();
@@ -58,30 +70,31 @@ impl Indicator for FisherTransform {
             return None;
         }
 
-        let min = self.buf.iter().copied().fold(f64::INFINITY, f64::min);
-        let max = self.buf.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let min = self.buf.iter().copied().min().unwrap_or(price);
+        let max = self.buf.iter().copied().max().unwrap_or(price);
 
         let raw = if max > min {
-            let scaled = 2.0 * (price - min) / (max - min) - 1.0;
-            let raw = 0.66 * scaled + 0.67 * self.prev_raw;
-            raw.clamp(-0.999, 0.999)
+            let scaled = Decimal::TWO * (price - min) / (max - min) - Decimal::ONE;
+            let raw = Decimal::new(66, 2) * scaled + Decimal::new(67, 2) * self.prev_raw;
+            raw.clamp(Decimal::new(-999, 3), Decimal::new(999, 3))
         } else {
             self.prev_raw
         };
         self.prev_raw = raw;
 
-        let v = 0.5 * ((1.0 + raw) / (1.0 - raw)).ln();
+        let ratio = (Decimal::ONE + raw) / (Decimal::ONE - raw);
+        let v = Decimal::new(5, 1) * ratio.checked_ln().unwrap_or(Decimal::ZERO);
         self.last = Some(v);
         Some(v)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 
     fn reset(&mut self) {
         self.buf.clear();
-        self.prev_raw = 0.0;
+        self.prev_raw = Decimal::ZERO;
         self.last = None;
     }
 }

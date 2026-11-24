@@ -2,9 +2,11 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// Chaikin Money Flow.
+/// Chaikin Money Flow, computed in `Decimal`.
 ///
 /// `CMF = Σ money_flow_volume / Σ volume` over the last `period` bars, where
 /// `money_flow_volume = money_flow_multiplier * volume`. The range is `[−1, 1]`;
@@ -12,9 +14,9 @@ use crate::indicator::Indicator;
 #[derive(Clone, Debug)]
 pub struct ChaikinMoneyFlow {
     period: usize,
-    flows: VecDeque<f64>,
-    volumes: VecDeque<f64>,
-    last: Option<f64>,
+    flows: VecDeque<Decimal>,
+    volumes: VecDeque<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl ChaikinMoneyFlow {
@@ -38,8 +40,14 @@ impl ChaikinMoneyFlow {
         self.period
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`/`volume`.
-    pub fn update_hlcv(&mut self, high: f64, low: f64, close: f64, volume: f64) -> Option<f64> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`/`volume`.
+    pub fn update_hlcv(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Option<Decimal> {
         let flow = crate::mfi::Mfi::multiplier(high, low, close) * volume;
         self.flows.push_back(flow);
         self.volumes.push_back(volume);
@@ -50,10 +58,10 @@ impl ChaikinMoneyFlow {
         if self.flows.len() < self.period {
             return None;
         }
-        let sum_flow: f64 = self.flows.iter().sum();
-        let sum_vol: f64 = self.volumes.iter().sum();
-        let v = if sum_vol == 0.0 {
-            0.0
+        let sum_flow: Decimal = self.flows.iter().copied().sum();
+        let sum_vol: Decimal = self.volumes.iter().copied().sum();
+        let v = if sum_vol.is_zero() {
+            Decimal::ZERO
         } else {
             sum_flow / sum_vol
         };
@@ -64,17 +72,13 @@ impl ChaikinMoneyFlow {
 
 impl Indicator for ChaikinMoneyFlow {
     type Input<'a> = &'a tantra_core::Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &tantra_core::Bar) -> Option<f64> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        let volume = crate::quantity_f64(&bar.volume);
-        self.update_hlcv(high, low, close, volume)
+    fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
+        self.update_hlcv(bar.high.0, bar.low.0, bar.close.0, bar.volume.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

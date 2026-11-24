@@ -2,6 +2,8 @@
 
 use std::collections::BTreeSet;
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tantra_market_indicators::render::{
     self, ColorRole, Pane, Plot, PlotKind, Presentation, RenderError, Zone,
 };
@@ -24,31 +26,40 @@ fn outputs_of(name: &str) -> Vec<&'static str> {
 /// warming up, one point per input. ATR is fed an h=l=c bar so its true range is zero.
 fn series_of(name: &str, inputs: &[f64]) -> Vec<f64> {
     let nan = |o: Option<f64>| o.unwrap_or(f64::NAN);
+    let to_dec = |x: f64| Decimal::try_from(x).expect("finite input");
     match name {
         "sma" => {
             let mut ind = Sma::new(20);
-            inputs.iter().map(|&x| nan(ind.update(x))).collect()
+            inputs.iter().map(|&x| nan(ind.update_f64(x))).collect()
         }
         "ema" => {
             let mut ind = Ema::new(20);
-            inputs.iter().map(|&x| nan(ind.update(x))).collect()
+            inputs.iter().map(|&x| nan(ind.update_f64(x))).collect()
         }
         "rsi" => {
             let mut ind = Rsi::new(14);
-            inputs.iter().map(|&x| nan(ind.update(x))).collect()
+            inputs.iter().map(|&x| nan(ind.update_f64(x))).collect()
         }
         "macd" => {
             let mut ind = Macd::new(12, 26, 9);
             inputs
                 .iter()
-                .map(|&x| ind.update(x).map_or(f64::NAN, |v| v.macd))
+                .map(|&x| {
+                    ind.update(to_dec(x))
+                        .and_then(|v| v.macd.to_f64())
+                        .unwrap_or(f64::NAN)
+                })
                 .collect()
         }
         "bollinger" => {
-            let mut ind = BollingerBands::new(20, 2.0);
+            let mut ind = BollingerBands::new(20, Decimal::TWO);
             inputs
                 .iter()
-                .map(|&x| ind.update(x).map_or(f64::NAN, |v| v.middle))
+                .map(|&x| {
+                    ind.update(to_dec(x))
+                        .and_then(|v| v.middle.to_f64())
+                        .unwrap_or(f64::NAN)
+                })
                 .collect()
         }
         "atr" => {
@@ -62,7 +73,12 @@ fn series_of(name: &str, inputs: &[f64]) -> Vec<f64> {
             let mut ind = WilliamsR::new(14);
             inputs
                 .iter()
-                .map(|&x| nan(ind.update_hlc(x + 1.0, x - 1.0, x)))
+                .map(|&x| {
+                    let d = to_dec(x);
+                    ind.update_hlc(d + Decimal::ONE, d - Decimal::ONE, d)
+                        .and_then(|v| v.to_f64())
+                        .unwrap_or(f64::NAN)
+                })
                 .collect()
         }
         "stochastic" => {
@@ -70,8 +86,10 @@ fn series_of(name: &str, inputs: &[f64]) -> Vec<f64> {
             inputs
                 .iter()
                 .map(|&x| {
-                    ind.update_hlc(x + 1.0, x - 1.0, x)
-                        .map_or(f64::NAN, |v| v.k)
+                    let d = to_dec(x);
+                    ind.update_hlc(d + Decimal::ONE, d - Decimal::ONE, d)
+                        .and_then(|v| v.k.to_f64())
+                        .unwrap_or(f64::NAN)
                 })
                 .collect()
         }

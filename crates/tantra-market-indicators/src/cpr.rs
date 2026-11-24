@@ -12,11 +12,12 @@
 //! CPR Width = TC - BC
 //! ```
 
-use crate::indicator::Indicator;
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use tantra_core::Bar;
 
-/// Central Pivot Range (CPR) indicator.
+use crate::indicator::Indicator;
+
+/// Central Pivot Range (CPR) indicator, computed in `Decimal`.
 ///
 /// CPR provides three key levels:
 /// - Pivot: The central pivot point
@@ -24,10 +25,10 @@ use tantra_core::Bar;
 /// - TC (Top Central Pivot): Upper boundary
 #[derive(Clone, Debug)]
 pub struct Cpr {
-    pivot: Option<f64>,
-    bc: Option<f64>,
-    tc: Option<f64>,
-    width: Option<f64>,
+    pivot: Option<Decimal>,
+    bc: Option<Decimal>,
+    tc: Option<Decimal>,
+    width: Option<Decimal>,
 }
 
 impl Cpr {
@@ -42,22 +43,22 @@ impl Cpr {
     }
 
     /// Returns the current pivot value.
-    pub fn pivot(&self) -> Option<f64> {
+    pub fn pivot(&self) -> Option<Decimal> {
         self.pivot
     }
 
     /// Returns the bottom central pivot (BC).
-    pub fn bc(&self) -> Option<f64> {
+    pub fn bc(&self) -> Option<Decimal> {
         self.bc
     }
 
     /// Returns the top central pivot (TC).
-    pub fn tc(&self) -> Option<f64> {
+    pub fn tc(&self) -> Option<Decimal> {
         self.tc
     }
 
     /// Returns the CPR width (TC - BC).
-    pub fn width(&self) -> Option<f64> {
+    pub fn width(&self) -> Option<Decimal> {
         self.width
     }
 }
@@ -70,16 +71,17 @@ impl Default for Cpr {
 
 impl Indicator for Cpr {
     type Input<'a> = &'a Bar;
-    type Output = f64; // Returns the pivot value
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &Bar) -> Option<f64> {
-        let high = bar.high.0.to_f64().unwrap_or(0.0);
-        let low = bar.low.0.to_f64().unwrap_or(0.0);
-        let close = bar.close.0.to_f64().unwrap_or(0.0);
+    fn update(&mut self, bar: &Bar) -> Option<Decimal> {
+        let high = bar.high.0;
+        let low = bar.low.0;
+        let close = bar.close.0;
 
-        let pivot = (high + low + close) / 3.0;
-        let bc = (high + low) / 2.0;
-        let tc = 2.0 * pivot - bc;
+        let three = Decimal::from(3);
+        let pivot = (high + low + close) / three;
+        let bc = (high + low) / Decimal::TWO;
+        let tc = Decimal::TWO * pivot - bc;
         let width = tc - bc;
 
         self.pivot = Some(pivot);
@@ -90,7 +92,7 @@ impl Indicator for Cpr {
         Some(pivot)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.pivot
     }
 

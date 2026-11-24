@@ -1,8 +1,11 @@
 //! Relative Strength Index (Wilder).
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+
 use crate::indicator::Indicator;
 
-/// Wilder's Relative Strength Index.
+/// Wilder's Relative Strength Index, computed in `Decimal`.
 ///
 /// Produces values in `[0, 100]`. The first value appears after `period + 1`
 /// inputs (one extra to establish the first price change). Subsequent values
@@ -11,24 +14,25 @@ use crate::indicator::Indicator;
 /// `avg = (avg * (n - 1) + x) / n`
 ///
 /// ```
+/// use rust_decimal::Decimal;
 /// use tantra_market_indicators::{Indicator, Rsi};
 ///
 /// let mut rsi = Rsi::new(3);
-/// for p in [1.0, 2.0, 3.0, 4.0] {
-///     rsi.update(p);
+/// for p in [1, 2, 3, 4] {
+///     rsi.update(Decimal::from(p));
 /// }
 /// // All-up moves drive RSI to 100.
-/// assert_eq!(rsi.value(), Some(100.0));
+/// assert_eq!(rsi.value(), Some(Decimal::ONE_HUNDRED));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Rsi {
     period: usize,
-    prev_price: Option<f64>,
-    seed_gains: Vec<f64>,
-    seed_losses: Vec<f64>,
-    avg_gain: Option<f64>,
-    avg_loss: Option<f64>,
-    last: Option<f64>,
+    prev_price: Option<Decimal>,
+    seed_gains: Vec<Decimal>,
+    seed_losses: Vec<Decimal>,
+    avg_gain: Option<Decimal>,
+    avg_loss: Option<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl Rsi {
@@ -55,21 +59,30 @@ impl Rsi {
         self.period
     }
 
-    fn compute(avg_gain: f64, avg_loss: f64) -> f64 {
-        if avg_loss == 0.0 {
-            100.0
+    /// `f64` presentation shim over [`Indicator::update`].
+    ///
+    /// For chart presentation surfaces only; financial math must use the `Decimal` input.
+    /// Non-finite inputs return `None` without mutating state.
+    pub fn update_f64(&mut self, price: f64) -> Option<f64> {
+        let p = Decimal::try_from(price).ok()?;
+        self.update(p).and_then(|v| v.to_f64())
+    }
+
+    fn compute(avg_gain: Decimal, avg_loss: Decimal) -> Decimal {
+        if avg_loss.is_zero() {
+            Decimal::ONE_HUNDRED
         } else {
             let rs = avg_gain / avg_loss;
-            100.0 - 100.0 / (1.0 + rs)
+            Decimal::ONE_HUNDRED - Decimal::ONE_HUNDRED / (Decimal::ONE + rs)
         }
     }
 }
 
 impl Indicator for Rsi {
-    type Input<'a> = f64;
-    type Output = f64;
+    type Input<'a> = Decimal;
+    type Output = Decimal;
 
-    fn update(&mut self, price: f64) -> Option<f64> {
+    fn update(&mut self, price: Decimal) -> Option<Decimal> {
         let prev = match self.prev_price {
             None => {
                 self.prev_price = Some(price);
@@ -80,16 +93,26 @@ impl Indicator for Rsi {
         self.prev_price = Some(price);
 
         let change = price - prev;
-        let gain = if change > 0.0 { change } else { 0.0 };
-        let loss = if change < 0.0 { -change } else { 0.0 };
+        let gain = if change > Decimal::ZERO {
+            change
+        } else {
+            Decimal::ZERO
+        };
+        let loss = if change < Decimal::ZERO {
+            -change
+        } else {
+            Decimal::ZERO
+        };
 
+        let n = Decimal::from(self.period);
         if self.avg_gain.is_none() {
             self.seed_gains.push(gain);
             self.seed_losses.push(loss);
             if self.seed_gains.len() == self.period {
-                let n = self.period as f64;
-                let g: f64 = self.seed_gains.iter().sum::<f64>() / n;
-                let l: f64 = self.seed_losses.iter().sum::<f64>() / n;
+                let g: Decimal = self.seed_gains.iter().copied().sum::<Decimal>() / n;
+                let l: Decimal = self.seed_losses.iter().copied().sum::<Decimal>() / n;
+                self.seed_gains.clear();
+                self.seed_losses.clear();
                 self.avg_gain = Some(g);
                 self.avg_loss = Some(l);
                 let v = Self::compute(g, l);
@@ -99,9 +122,8 @@ impl Indicator for Rsi {
             return None;
         }
 
-        let n = self.period as f64;
-        let g = (self.avg_gain.unwrap() * (n - 1.0) + gain) / n;
-        let l = (self.avg_loss.unwrap() * (n - 1.0) + loss) / n;
+        let g = (self.avg_gain.unwrap() * (n - Decimal::ONE) + gain) / n;
+        let l = (self.avg_loss.unwrap() * (n - Decimal::ONE) + loss) / n;
         self.avg_gain = Some(g);
         self.avg_loss = Some(l);
         let v = Self::compute(g, l);
@@ -109,7 +131,7 @@ impl Indicator for Rsi {
         Some(v)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

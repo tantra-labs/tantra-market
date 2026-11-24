@@ -1,51 +1,77 @@
-//! Shared fixtures for the extracted in-crate tests (ported from
-//! `honba-me-indicators/src/tests/mod.rs`).
+//! Shared fixtures for `tantra-market-indicators` unit tests.
 #![allow(dead_code)]
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use tantra_core::{Bar, Exchange, InstrumentId, Price, Quantity};
 use tantra_market_indicators::Indicator;
+
+/// A deterministic timestamp for unit tests (Zero-Clock purity).
+pub fn fixed_ts() -> DateTime<Utc> {
+    DateTime::from_timestamp(1_700_000_000, 0).expect("valid timestamp")
+}
 
 /// A placeholder instrument for tests where the instrument does not matter.
 pub fn any_instrument() -> InstrumentId {
     InstrumentId::new(Exchange::Nse, "X")
 }
 
-/// A bar with the given high, low and close (open = close, volume 1).
-pub fn hlc(high: f64, low: f64, close: f64) -> Bar {
+/// A `Decimal` helper from integers/fractional `f64` literal.
+pub fn dec_f64(v: f64) -> Decimal {
+    Decimal::try_from(v).expect("finite test literal")
+}
+
+/// A bar with the given `Decimal` high, low and close (open = close, volume 1).
+pub fn hlc_dec(high: Decimal, low: Decimal, close: Decimal) -> Bar {
     Bar {
         instrument: any_instrument(),
-        open: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
-        high: Price::new(Decimal::from_f64_retain(high).unwrap_or_default()),
-        low: Price::new(Decimal::from_f64_retain(low).unwrap_or_default()),
-        close: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
+        open: Price::new(close),
+        high: Price::new(high),
+        low: Price::new(low),
+        close: Price::new(close),
         volume: Quantity::from_u64(1),
-        timestamp: Utc::now(),
+        timestamp: fixed_ts(),
     }
 }
 
-/// A bar with the given high, low, close and volume.
-pub fn hlcv(high: f64, low: f64, close: f64, volume: f64) -> Bar {
+/// A bar with the given `Decimal` high, low, close and volume.
+pub fn hlcv_dec(high: Decimal, low: Decimal, close: Decimal, volume: Decimal) -> Bar {
     Bar {
         instrument: any_instrument(),
-        open: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
-        high: Price::new(Decimal::from_f64_retain(high).unwrap_or_default()),
-        low: Price::new(Decimal::from_f64_retain(low).unwrap_or_default()),
-        close: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
-        volume: Quantity::new(Decimal::from_f64_retain(volume).unwrap_or_default()),
-        timestamp: Utc::now(),
+        open: Price::new(close),
+        high: Price::new(high),
+        low: Price::new(low),
+        close: Price::new(close),
+        volume: Quantity::new(volume),
+        timestamp: fixed_ts(),
     }
 }
 
-/// Feeds every input and returns the outputs in order.
-pub fn feed<I>(ind: &mut I, inputs: &[f64]) -> Vec<Option<I::Output>>
+/// Convenience `f64`-literal wrapper constructing an exact `Decimal` bar.
+pub fn hlc(high: f64, low: f64, close: f64) -> Bar {
+    hlc_dec(dec_f64(high), dec_f64(low), dec_f64(close))
+}
+
+/// Convenience `f64`-literal wrapper constructing an exact `Decimal` bar with volume.
+pub fn hlcv(high: f64, low: f64, close: f64, volume: f64) -> Bar {
+    hlcv_dec(dec_f64(high), dec_f64(low), dec_f64(close), dec_f64(volume))
+}
+
+/// Feeds every `Decimal` input and returns the outputs in order.
+pub fn feed<I>(ind: &mut I, inputs: &[Decimal]) -> Vec<Option<I::Output>>
 where
-    I: for<'a> Indicator<Input<'a> = f64>,
+    I: for<'a> Indicator<Input<'a> = Decimal>,
 {
     inputs.iter().map(|&x| ind.update(x)).collect()
 }
 
-pub fn assert_close(a: f64, b: f64) {
-    assert!((a - b).abs() < 1e-9, "{a} != {b}");
+/// Asserts two `Decimal` values are within `tol` (`1e-9` by default).
+pub fn assert_dec_close(a: Decimal, b: Decimal) {
+    let tol = Decimal::new(1, 9);
+    assert!((a - b).abs() < tol, "{a} != {b} (diff {})", (a - b).abs());
+}
+
+/// Asserts two `Decimal` values are within a wider tolerance `tol`.
+pub fn assert_dec_within(a: Decimal, b: Decimal, tol: Decimal) {
+    assert!((a - b).abs() < tol, "{a} != {b} (diff {})", (a - b).abs());
 }

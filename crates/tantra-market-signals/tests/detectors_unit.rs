@@ -145,7 +145,7 @@ fn the_series_matches_the_underlying_indicator() {
     let mut ema = tantra_market_indicators::Ema::new(params.ema_fast);
     let mut last = None;
     for bar in &bars {
-        last = ema.update(bar.close.0.to_f64().unwrap_or(0.0));
+        last = ema.update(bar.close.0).and_then(|v| v.to_f64());
     }
     assert_eq!(series.ema_fast[series.len() - 1], last);
 }

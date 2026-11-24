@@ -1,7 +1,9 @@
 //! Unit tests for `crate::donchian`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc, hlc_dec};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Donchian, Indicator};
 
 #[test]
@@ -30,9 +32,9 @@ fn middle_is_midpoint_of_upper_and_lower() {
         d.update(&hlc(h, l, 9.0));
     }
     let v = d.value().unwrap();
-    assert_eq!(v.upper, 11.0);
-    assert_eq!(v.lower, 7.0);
-    assert_close(v.middle, 9.0);
+    assert_eq!(v.upper, dec!(11));
+    assert_eq!(v.lower, dec!(7));
+    assert_dec_close(v.middle, dec!(9));
 }
 
 #[test]
@@ -41,23 +43,23 @@ fn window_slides_over_last_period_bars() {
     let v = d.update(&hlc(10.0, 8.0, 9.0));
     assert_eq!(v, None);
     let v = d.update(&hlc(11.0, 9.0, 10.0)).unwrap();
-    assert_eq!(v.upper, 11.0);
-    assert_eq!(v.lower, 8.0);
+    assert_eq!(v.upper, dec!(11));
+    assert_eq!(v.lower, dec!(8));
     let v = d.update(&hlc(9.0, 7.0, 8.0)).unwrap();
-    assert_eq!(v.upper, 11.0);
-    assert_eq!(v.lower, 7.0);
+    assert_eq!(v.upper, dec!(11));
+    assert_eq!(v.lower, dec!(7));
     let v = d.update(&hlc(5.0, 2.0, 3.0)).unwrap();
-    assert_eq!(v.upper, 9.0);
-    assert_eq!(v.lower, 2.0);
+    assert_eq!(v.upper, dec!(9));
+    assert_eq!(v.lower, dec!(2));
 }
 
 #[test]
 fn period_one_echoes_input_bar() {
     let mut d = Donchian::new(1);
     let v = d.update(&hlc(10.0, 8.0, 9.0)).unwrap();
-    assert_eq!(v.upper, 10.0);
-    assert_eq!(v.lower, 8.0);
-    assert_close(v.middle, 9.0);
+    assert_eq!(v.upper, dec!(10));
+    assert_eq!(v.lower, dec!(8));
+    assert_dec_close(v.middle, dec!(9));
 }
 
 #[test]
@@ -71,7 +73,10 @@ fn reset_clears_state() {
     assert_eq!(d.update(&hlc(5.0, 3.0, 4.0)), None);
 }
 
-fn reference(bars: &[(f64, f64)], period: usize) -> Vec<Option<(f64, f64, f64)>> {
+fn reference(
+    bars: &[(Decimal, Decimal)],
+    period: usize,
+) -> Vec<Option<(Decimal, Decimal, Decimal)>> {
     let mut out = Vec::with_capacity(bars.len());
     for i in 0..bars.len() {
         if i + 1 < period {
@@ -79,24 +84,27 @@ fn reference(bars: &[(f64, f64)], period: usize) -> Vec<Option<(f64, f64, f64)>>
             continue;
         }
         let window = &bars[i + 1 - period..=i];
-        let upper = window
-            .iter()
-            .map(|(h, _)| *h)
-            .fold(f64::NEG_INFINITY, f64::max);
-        let lower = window.iter().map(|(_, l)| *l).fold(f64::INFINITY, f64::min);
-        out.push(Some((upper, lower, (upper + lower) * 0.5)));
+        let upper = window.iter().map(|(h, _)| *h).max().unwrap();
+        let lower = window.iter().map(|(_, l)| *l).min().unwrap();
+        out.push(Some((upper, lower, (upper + lower) / Decimal::TWO)));
     }
     out
 }
 
 #[test]
 fn oracle_against_o_n_reference() {
-    let seq: Vec<(f64, f64)> = (0..500)
+    let seq: Vec<(Decimal, Decimal)> = (0..500)
         .map(|i: usize| {
-            let a = ((i.wrapping_mul(1664525).wrapping_add(1013904223)) % 10000) as f64 / 100.0;
-            let b = ((i.wrapping_mul(22695477).wrapping_add(1)) % 5000) as f64 / 100.0;
+            let a = Decimal::new(
+                ((i.wrapping_mul(1664525).wrapping_add(1013904223)) % 10000) as i64,
+                2,
+            );
+            let b = Decimal::new(
+                ((i.wrapping_mul(22695477).wrapping_add(1)) % 5000) as i64,
+                2,
+            );
             let lo = a.min(b);
-            let hi = a.max(b) + 0.01;
+            let hi = a.max(b) + dec!(0.01);
             (hi, lo)
         })
         .collect();
@@ -104,14 +112,14 @@ fn oracle_against_o_n_reference() {
         let mut d = Donchian::new(period);
         let expected = reference(&seq, period);
         for (i, (h, l)) in seq.iter().enumerate() {
-            let got = d.update(&hlc(*h, *l, *l));
+            let got = d.update(&hlc_dec(*h, *l, *l));
             match expected[i] {
                 None => assert_eq!(got, None, "period {period} index {i}"),
                 Some((eu, el, em)) => {
                     let gv = got.unwrap();
-                    assert_close(gv.upper, eu);
-                    assert_close(gv.lower, el);
-                    assert_close(gv.middle, em);
+                    assert_dec_close(gv.upper, eu);
+                    assert_dec_close(gv.lower, el);
+                    assert_dec_close(gv.middle, em);
                 }
             }
         }

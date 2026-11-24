@@ -2,6 +2,7 @@
 
 mod common;
 use common::feed;
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Ema, Indicator};
 
 #[test]
@@ -16,17 +17,17 @@ fn seeds_with_the_sma_then_applies_alpha() {
     let mut e = Ema::new(3);
     assert_eq!(e.period(), 3);
     assert_eq!(
-        feed(&mut e, &[1.0, 2.0, 3.0, 4.0, 0.0]),
-        [None, None, Some(2.0), Some(3.0), Some(1.5)]
+        feed(&mut e, &[dec!(1), dec!(2), dec!(3), dec!(4), dec!(0)]),
+        [None, None, Some(dec!(2)), Some(dec!(3)), Some(dec!(1.5))]
     );
-    assert_eq!(e.value(), Some(1.5));
+    assert_eq!(e.value(), Some(dec!(1.5)));
 }
 
 #[test]
 fn reset_requires_a_fresh_seed() {
     let mut e = Ema::new(2);
-    feed(&mut e, &[1.0, 3.0, 5.0]);
+    feed(&mut e, &[dec!(1), dec!(3), dec!(5)]);
     e.reset();
     assert_eq!(e.value(), None);
-    assert_eq!(feed(&mut e, &[10.0, 20.0]), [None, Some(15.0)]);
+    assert_eq!(feed(&mut e, &[dec!(10), dec!(20)]), [None, Some(dec!(15))]);
 }

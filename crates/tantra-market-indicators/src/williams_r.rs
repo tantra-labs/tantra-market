@@ -2,15 +2,16 @@
 //!
 //! `%R = -100 * (HH - close) / (HH - LL)` over `period` bars. `HH` is the
 //! highest high and `LL` the lowest low in the window. A flat window
-//! (`HH == LL`) yields `-50.0` by convention.
+//! (`HH == LL`) yields `-50` by convention.
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
 use tantra_core::Bar;
 
 use crate::indicator::Indicator;
 
-/// Williams %R over `period` bars, in `[-100, 0]`.
+/// Williams %R over `period` bars, in `[-100, 0]`, computed in `Decimal`.
 ///
 /// Monotonic deques give O(1) amortised updates.
 ///
@@ -19,31 +20,31 @@ use crate::indicator::Indicator;
 /// use tantra_market_indicators::{Indicator, WilliamsR};
 /// use rust_decimal::Decimal;
 ///
-/// fn bar(h: f64, l: f64, c: f64) -> Bar {
+/// fn bar(h: i64, l: i64, c: i64) -> Bar {
 ///     Bar {
 ///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from_f64_retain(c).unwrap()),
-///         high: Price::new(Decimal::from_f64_retain(h).unwrap()),
-///         low: Price::new(Decimal::from_f64_retain(l).unwrap()),
-///         close: Price::new(Decimal::from_f64_retain(c).unwrap()),
+///         open: Price::new(Decimal::from(c)),
+///         high: Price::new(Decimal::from(h)),
+///         low: Price::new(Decimal::from(l)),
+///         close: Price::new(Decimal::from(c)),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
 /// }
 /// let mut w = WilliamsR::new(3);
-/// w.update(&bar(10.0, 5.0, 9.0));
-/// w.update(&bar(12.0, 6.0, 11.0));
-/// let r = w.update(&bar(11.0, 4.0, 6.0)).unwrap();
+/// w.update(&bar(10, 5, 9));
+/// w.update(&bar(12, 6, 11));
+/// let r = w.update(&bar(11, 4, 6)).unwrap();
 /// // HH=12, LL=4, close=6 -> -100*(6/8) = -75
-/// assert!((r - (-75.0)).abs() < 1e-9);
+/// assert_eq!(r, Decimal::from(-75));
 /// ```
 #[derive(Clone, Debug)]
 pub struct WilliamsR {
     period: usize,
     index: usize,
-    highs: VecDeque<(usize, f64)>,
-    lows: VecDeque<(usize, f64)>,
-    last: Option<f64>,
+    highs: VecDeque<(usize, Decimal)>,
+    lows: VecDeque<(usize, Decimal)>,
+    last: Option<Decimal>,
 }
 
 impl WilliamsR {
@@ -68,7 +69,7 @@ impl WilliamsR {
         self.period
     }
 
-    fn push(&mut self, high: f64, low: f64, close: f64) -> Option<f64> {
+    fn push(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
         let idx = self.index;
         self.index += 1;
 
@@ -94,10 +95,10 @@ impl WilliamsR {
             let hh = self.highs.front().unwrap().1;
             let ll = self.lows.front().unwrap().1;
             let denom = hh - ll;
-            let v = if denom.abs() < f64::EPSILON {
-                -50.0
+            let v = if denom.is_zero() {
+                Decimal::from(-50)
             } else {
-                -100.0 * (hh - close) / denom
+                Decimal::from(-100) * (hh - close) / denom
             };
             self.last = Some(v);
             Some(v)
@@ -106,25 +107,21 @@ impl WilliamsR {
         }
     }
 
-    /// Feeds raw `high`/`low`/`close` without building a `Bar`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<f64> {
+    /// Feeds raw `Decimal` `high`/`low`/`close` without building a `Bar`.
+    pub fn update_hlc(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
         self.push(high, low, close)
     }
 }
 
 impl Indicator for WilliamsR {
     type Input<'a> = &'a Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &Bar) -> Option<f64> {
-        self.push(
-            bar.high.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.low.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.close.0.to_string().parse::<f64>().unwrap_or(0.0),
-        )
+    fn update(&mut self, bar: &Bar) -> Option<Decimal> {
+        self.push(bar.high.0, bar.low.0, bar.close.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

@@ -1,5 +1,7 @@
 //! Pivot Points (Classic, Fibonacci, Woodie).
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
 /// The pivot style.
@@ -13,27 +15,27 @@ pub enum PivotStyle {
     Woodie,
 }
 
-/// The support/resistance levels derived from one bar.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The support/resistance levels derived from one bar, computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PivotValue {
     /// The pivot level.
-    pub pivot: f64,
+    pub pivot: Decimal,
     /// Resistance 1.
-    pub r1: f64,
+    pub r1: Decimal,
     /// Support 1.
-    pub s1: f64,
+    pub s1: Decimal,
     /// Resistance 2.
-    pub r2: f64,
+    pub r2: Decimal,
     /// Support 2.
-    pub s2: f64,
+    pub s2: Decimal,
     /// Resistance 3 (`None` for Woodie).
-    pub r3: Option<f64>,
+    pub r3: Option<Decimal>,
     /// Support 3 (`None` for Woodie).
-    pub s3: Option<f64>,
+    pub s3: Option<Decimal>,
 }
 
-/// Daily/period pivot levels computed from each bar's high, low and close.
+/// Daily/period pivot levels computed from each bar's high, low and close in `Decimal`.
 ///
 /// Every bar yields a value from the first (the levels use that bar's own
 /// high/low/close, which is how intraday indicator feeds derive "today's"
@@ -55,40 +57,51 @@ impl PivotPoints {
         self.style
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<PivotValue> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<PivotValue> {
         let range = high - low;
+        let two = Decimal::TWO;
+        let three = Decimal::from(3);
+        let four = Decimal::from(4);
+        let fib_382 = Decimal::new(382, 3);
+        let fib_618 = Decimal::new(618, 3);
+
         let v = match self.style {
             PivotStyle::Classic => {
-                let pivot = (high + low + close) / 3.0;
+                let pivot = (high + low + close) / three;
                 PivotValue {
                     pivot,
-                    r1: 2.0 * pivot - low,
-                    s1: 2.0 * pivot - high,
+                    r1: two * pivot - low,
+                    s1: two * pivot - high,
                     r2: pivot + range,
                     s2: pivot - range,
-                    r3: Some(high + 2.0 * (pivot - low)),
-                    s3: Some(low - 2.0 * (high - pivot)),
+                    r3: Some(high + two * (pivot - low)),
+                    s3: Some(low - two * (high - pivot)),
                 }
             }
             PivotStyle::Fibonacci => {
-                let pivot = (high + low + close) / 3.0;
+                let pivot = (high + low + close) / three;
                 PivotValue {
                     pivot,
-                    r1: pivot + 0.382 * range,
-                    s1: pivot - 0.382 * range,
-                    r2: pivot + 0.618 * range,
-                    s2: pivot - 0.618 * range,
+                    r1: pivot + fib_382 * range,
+                    s1: pivot - fib_382 * range,
+                    r2: pivot + fib_618 * range,
+                    s2: pivot - fib_618 * range,
                     r3: Some(pivot + range),
                     s3: Some(pivot - range),
                 }
             }
             PivotStyle::Woodie => {
-                let pivot = (high + low + 2.0 * close) / 4.0;
+                let pivot = (high + low + two * close) / four;
                 PivotValue {
                     pivot,
-                    r1: 2.0 * pivot - low,
-                    s1: 2.0 * pivot - high,
+                    r1: two * pivot - low,
+                    s1: two * pivot - high,
                     r2: pivot + range,
                     s2: pivot - range,
                     r3: None,
@@ -106,10 +119,7 @@ impl Indicator for PivotPoints {
     type Output = PivotValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<PivotValue> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        self.update_hlc(high, low, close)
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
     fn value(&self) -> Option<PivotValue> {

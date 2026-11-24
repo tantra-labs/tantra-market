@@ -11,28 +11,29 @@
 //! OBV = OBV[1] if Close == Close[1]
 //! ```
 
-use crate::indicator::Indicator;
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use tantra_core::Bar;
 
-/// On Balance Volume (OBV).
+use crate::indicator::Indicator;
+
+/// On Balance Volume (OBV), computed in `Decimal`.
 #[derive(Clone, Debug)]
 pub struct Obv {
-    value: f64,
-    prev_close: Option<f64>,
+    value: Decimal,
+    prev_close: Option<Decimal>,
 }
 
 impl Obv {
     /// Creates a new OBV calculator.
     pub fn new() -> Self {
         Self {
-            value: 0.0,
+            value: Decimal::ZERO,
             prev_close: None,
         }
     }
 
     /// Returns the current OBV value.
-    pub fn value(&self) -> Option<f64> {
+    pub fn value(&self) -> Option<Decimal> {
         Some(self.value)
     }
 }
@@ -45,36 +46,30 @@ impl Default for Obv {
 
 impl Indicator for Obv {
     type Input<'a> = &'a Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &Bar) -> Option<f64> {
-        let close = bar.close.0.to_f64().unwrap_or(0.0);
-        let volume = bar.volume.0.to_f64().unwrap_or(0.0);
+    fn update(&mut self, bar: &Bar) -> Option<Decimal> {
+        let close = bar.close.0;
+        let volume = bar.volume.0;
 
-        match self.prev_close {
-            None => {
-                // First bar - OBV starts at 0
-                self.prev_close = Some(close);
-            }
-            Some(prev_close) => {
-                if close > prev_close {
-                    self.value += volume;
-                } else if close < prev_close {
-                    self.value -= volume;
-                }
-                // If close == prev_close, OBV unchanged
+        if let Some(prev_close) = self.prev_close {
+            if close > prev_close {
+                self.value += volume;
+            } else if close < prev_close {
+                self.value -= volume;
             }
         }
+        self.prev_close = Some(close);
 
         Some(self.value)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         Some(self.value)
     }
 
     fn reset(&mut self) {
-        self.value = 0.0;
+        self.value = Decimal::ZERO;
         self.prev_close = None;
     }
 }

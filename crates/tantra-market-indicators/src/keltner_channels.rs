@@ -1,26 +1,28 @@
 //! Keltner Channels.
 
+use rust_decimal::Decimal;
+
 use crate::atr::Atr;
 use crate::ema::Ema;
 use crate::indicator::Indicator;
 
-/// The three Keltner lines.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The three Keltner lines, computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct KeltnerValue {
     /// The EMA of the close.
-    pub middle: f64,
+    pub middle: Decimal,
     /// `middle + mult * ATR`.
-    pub upper: f64,
+    pub upper: Decimal,
     /// `middle − mult * ATR`.
-    pub lower: f64,
+    pub lower: Decimal,
 }
 
 /// Keltner Channels: an EMA of the close ± `mult` times the ATR of the same
-/// period.
+/// period, computed in `Decimal`.
 #[derive(Clone, Debug)]
 pub struct KeltnerChannels {
-    mult: f64,
+    mult: Decimal,
     ema: Ema,
     atr: Atr,
     last: Option<KeltnerValue>,
@@ -33,9 +35,9 @@ impl KeltnerChannels {
     /// # Panics
     ///
     /// Panics if `period` is zero or `mult` is negative.
-    pub fn new(period: usize, mult: f64) -> Self {
+    pub fn new(period: usize, mult: Decimal) -> Self {
         assert!(period > 0, "Keltner period must be positive");
-        assert!(mult >= 0.0, "Keltner mult must be non-negative");
+        assert!(mult >= Decimal::ZERO, "Keltner mult must be non-negative");
         Self {
             mult,
             ema: Ema::new(period),
@@ -45,22 +47,27 @@ impl KeltnerChannels {
     }
 
     /// Returns the configured ATR multiplier.
-    pub fn mult(&self) -> f64 {
+    pub fn mult(&self) -> Decimal {
         self.mult
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<KeltnerValue> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<KeltnerValue> {
         // Both the EMA and the ATR must see every bar, even before either has
         // primed.
         let middle = self.ema.update(close);
-        // f64-legacy: docs/gaps/0009-f64-indicator-internals.md
-        let atr = self.atr.update_hlc_f64(high, low, close);
+        let atr = self.atr.update_hlc(high, low, close);
         let (m, a) = (middle?, atr?);
+        let band = self.mult * a;
         let v = KeltnerValue {
             middle: m,
-            upper: m + self.mult * a,
-            lower: m - self.mult * a,
+            upper: m + band,
+            lower: m - band,
         };
         self.last = Some(v);
         Some(v)
@@ -72,10 +79,7 @@ impl Indicator for KeltnerChannels {
     type Output = KeltnerValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<KeltnerValue> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        self.update_hlc(high, low, close)
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
     fn value(&self) -> Option<KeltnerValue> {

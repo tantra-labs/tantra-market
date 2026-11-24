@@ -1,19 +1,21 @@
 //! Elder Ray Index (Bull/Bear Power).
 
+use rust_decimal::Decimal;
+
 use crate::ema::Ema;
 use crate::indicator::Indicator;
 
-/// The two Elder Ray lines.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The two Elder Ray lines, computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ElderRayValue {
     /// `high − EMA(period, close)`.
-    pub bull_power: f64,
+    pub bull_power: Decimal,
     /// `low − EMA(period, close)`.
-    pub bear_power: f64,
+    pub bear_power: Decimal,
 }
 
-/// Elder Ray Index.
+/// Elder Ray Index, computed in `Decimal`.
 ///
 /// Bull Power measures the buying pressure (`high − EMA`), Bear Power the
 /// selling pressure (`low − EMA`), against the trend's EMA. The first value
@@ -43,8 +45,13 @@ impl ElderRay {
         self.ema.period()
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<ElderRayValue> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<ElderRayValue> {
         let trend = self.ema.update(close)?;
         let v = ElderRayValue {
             bull_power: high - trend,
@@ -60,10 +67,7 @@ impl Indicator for ElderRay {
     type Output = ElderRayValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<ElderRayValue> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        self.update_hlc(high, low, close)
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
     fn value(&self) -> Option<ElderRayValue> {

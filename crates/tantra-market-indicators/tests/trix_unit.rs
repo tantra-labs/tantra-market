@@ -1,7 +1,8 @@
 //! Unit tests for `crate::trix`.
 
 mod common;
-use common::{assert_close, feed};
+use common::{assert_dec_close, feed};
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Indicator, Trix};
 
 #[test]
@@ -17,30 +18,30 @@ fn period_one_trix_is_the_pct_change_of_price() {
     let mut t = Trix::new(1);
     assert_eq!(t.period(), 1);
     assert_eq!(
-        feed(&mut t, &[1.0, 2.0, 4.0]),
-        [None, Some(100.0), Some(100.0)]
+        feed(&mut t, &[dec!(1), dec!(2), dec!(4)]),
+        [None, Some(dec!(100)), Some(dec!(100))]
     );
 }
 
 #[test]
 fn constant_price_gives_zero_trix() {
     let mut t = Trix::new(3);
-    let out = feed(&mut t, &[10.0; 30]);
+    let out = feed(&mut t, &[dec!(10); 30]);
     // 3*3 = 9 inputs prime the triple EMA; input 8 (index 7) is the first
     // percentage change, so index 6 is still warmup.
     assert_eq!(out[0], None);
     assert_eq!(out[6], None);
-    assert_eq!(out[7], Some(0.0));
+    assert_eq!(out[7], Some(dec!(0)));
     for v in out.iter().flatten() {
-        assert_close(*v, 0.0);
+        assert_dec_close(*v, dec!(0));
     }
 }
 
 #[test]
 fn reset_requires_a_fresh_triple_seed() {
     let mut t = Trix::new(1);
-    feed(&mut t, &[1.0, 2.0]);
+    feed(&mut t, &[dec!(1), dec!(2)]);
     t.reset();
     assert_eq!(t.value(), None);
-    assert_eq!(feed(&mut t, &[5.0, 10.0]), [None, Some(100.0)]);
+    assert_eq!(feed(&mut t, &[dec!(5), dec!(10)]), [None, Some(dec!(100))]);
 }

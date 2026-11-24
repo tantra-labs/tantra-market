@@ -2,9 +2,11 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// Money Flow Index.
+/// Money Flow Index, computed in `Decimal`.
 ///
 /// `MFI = 100 − 100 / (1 + positive_flow / negative_flow)` over the last
 /// `period` bars, where each bar contributes `money_flow_multiplier * volume`
@@ -14,8 +16,8 @@ use crate::indicator::Indicator;
 #[derive(Clone, Debug)]
 pub struct Mfi {
     period: usize,
-    flows: VecDeque<f64>,
-    last: Option<f64>,
+    flows: VecDeque<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl Mfi {
@@ -40,17 +42,23 @@ impl Mfi {
 
     /// The money-flow multiplier of a bar: `((C − L) − (H − C)) / (H − L)`,
     /// zero when the bar has no range.
-    pub fn multiplier(high: f64, low: f64, close: f64) -> f64 {
+    pub fn multiplier(high: Decimal, low: Decimal, close: Decimal) -> Decimal {
         let range = high - low;
-        if range <= 0.0 {
-            0.0
+        if range <= Decimal::ZERO {
+            Decimal::ZERO
         } else {
             ((close - low) - (high - close)) / range
         }
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`/`volume`.
-    pub fn update_hlcv(&mut self, high: f64, low: f64, close: f64, volume: f64) -> Option<f64> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`/`volume`.
+    pub fn update_hlcv(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+        volume: Decimal,
+    ) -> Option<Decimal> {
         let flow = Self::multiplier(high, low, close) * volume;
         self.flows.push_back(flow);
         if self.flows.len() > self.period {
@@ -60,20 +68,27 @@ impl Mfi {
             return None;
         }
 
-        let positive: f64 = self.flows.iter().copied().filter(|f| *f > 0.0).sum();
-        let negative: f64 = self
+        let positive: Decimal = self
             .flows
             .iter()
             .copied()
-            .filter(|f| *f < 0.0)
+            .filter(|f| *f > Decimal::ZERO)
+            .sum();
+        let negative: Decimal = self
+            .flows
+            .iter()
+            .copied()
+            .filter(|f| *f < Decimal::ZERO)
             .map(|f| -f)
             .sum();
-        let v = if negative == 0.0 {
-            if positive == 0.0 { 50.0 } else { 100.0 }
-        } else if positive == 0.0 {
-            0.0
+        let hundred = Decimal::from(100);
+        let fifty = Decimal::from(50);
+        let v = if negative.is_zero() {
+            if positive.is_zero() { fifty } else { hundred }
+        } else if positive.is_zero() {
+            Decimal::ZERO
         } else {
-            100.0 - 100.0 / (1.0 + positive / negative)
+            hundred - hundred / (Decimal::ONE + positive / negative)
         };
         self.last = Some(v);
         Some(v)
@@ -82,17 +97,13 @@ impl Mfi {
 
 impl Indicator for Mfi {
     type Input<'a> = &'a tantra_core::Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &tantra_core::Bar) -> Option<f64> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        let volume = crate::quantity_f64(&bar.volume);
-        self.update_hlcv(high, low, close, volume)
+    fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
+        self.update_hlcv(bar.high.0, bar.low.0, bar.close.0, bar.volume.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

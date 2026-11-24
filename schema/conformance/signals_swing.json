@@ -1659,8 +1659,15 @@
           },
           {
             "codes": [
-              "break_of_structure_down",
               "break_prior_day_low"
+            ],
+            "direction": "sell"
+          },
+          {
+            "codes": [
+              "break_of_structure_down",
+              "break_prior_day_low",
+              "macd_cross_down"
             ],
             "direction": "sell"
           },
@@ -1702,7 +1709,8 @@
           },
           {
             "codes": [
-              "bullish_engulfing"
+              "bullish_engulfing",
+              "macd_cross_up"
             ],
             "direction": "buy"
           },

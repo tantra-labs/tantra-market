@@ -753,8 +753,7 @@
           },
           {
             "codes": [
-              "break_of_structure_down",
-              "macd_cross_up"
+              "break_of_structure_down"
             ],
             "direction": "sell"
           },

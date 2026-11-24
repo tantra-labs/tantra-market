@@ -1,37 +1,40 @@
 //! Moving Average Convergence Divergence.
 
+use rust_decimal::Decimal;
+
 use crate::ema::Ema;
 use crate::indicator::Indicator;
 
 /// The three series produced by [`Macd`].
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MacdValue {
     /// The MACD line: `fast_ema - slow_ema`.
-    pub macd: f64,
+    pub macd: Decimal,
     /// The signal line: EMA of the MACD line.
-    pub signal: f64,
+    pub signal: Decimal,
     /// `macd - signal`.
-    pub histogram: f64,
+    pub histogram: Decimal,
 }
 
 /// MACD: fast EMA minus slow EMA, with an EMA of that difference as the
-/// signal line.
+/// signal line, computed in `Decimal`.
 ///
 /// The first output appears once the slow EMA and the signal EMA have both
 /// primed. With typical settings (12, 26, 9) that's after `26 + 9 - 1 = 34`
 /// inputs.
 ///
 /// ```
+/// use rust_decimal::Decimal;
 /// use tantra_market_indicators::{Indicator, Macd};
 ///
 /// let mut macd = Macd::new(2, 4, 2);
 /// for x in 1..=20 {
-///     macd.update(x as f64);
+///     macd.update(Decimal::from(x));
 /// }
 /// let v = macd.value().unwrap();
-/// assert!(v.macd > 0.0);
-/// assert!((v.histogram - (v.macd - v.signal)).abs() < 1e-12);
+/// assert!(v.macd > Decimal::ZERO);
+/// assert!((v.histogram - (v.macd - v.signal)).abs() < Decimal::new(1, 12));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Macd {
@@ -81,10 +84,10 @@ impl Macd {
 }
 
 impl Indicator for Macd {
-    type Input<'a> = f64;
+    type Input<'a> = Decimal;
     type Output = MacdValue;
 
-    fn update(&mut self, input: f64) -> Option<MacdValue> {
+    fn update(&mut self, input: Decimal) -> Option<MacdValue> {
         // Both EMAs must see every input, regardless of whether the other
         // has primed yet. Combining them with `?` inside one expression
         // would short-circuit and starve the slow EMA during fast's warmup.

@@ -2,9 +2,11 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// Ultimate Oscillator.
+/// Ultimate Oscillator, computed in `Decimal`.
 ///
 /// `100 * (4*avg7 + 2*avg14 + avg28) / 7`, where
 /// `avg_k = ΣBP / ΣTR` over the last `k` bars,
@@ -16,10 +18,10 @@ use crate::indicator::Indicator;
 /// bars (the longest horizon).
 #[derive(Clone, Debug)]
 pub struct UltimateOscillator {
-    prev_close: Option<f64>,
-    bp: VecDeque<f64>,
-    tr: VecDeque<f64>,
-    last: Option<f64>,
+    prev_close: Option<Decimal>,
+    bp: VecDeque<Decimal>,
+    tr: VecDeque<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl UltimateOscillator {
@@ -34,15 +36,19 @@ impl UltimateOscillator {
     }
 
     /// Average `ΣBP / ΣTR` over the last `k` entries (0 when TR is 0).
-    fn average(bp: &VecDeque<f64>, tr: &VecDeque<f64>, k: usize) -> f64 {
+    fn average(bp: &VecDeque<Decimal>, tr: &VecDeque<Decimal>, k: usize) -> Decimal {
         let start = bp.len().saturating_sub(k);
-        let sum_bp: f64 = bp.iter().skip(start).sum();
-        let sum_tr: f64 = tr.iter().skip(start).sum();
-        if sum_tr == 0.0 { 0.0 } else { sum_bp / sum_tr }
+        let sum_bp: Decimal = bp.iter().skip(start).copied().sum();
+        let sum_tr: Decimal = tr.iter().skip(start).copied().sum();
+        if sum_tr.is_zero() {
+            Decimal::ZERO
+        } else {
+            sum_bp / sum_tr
+        }
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<f64> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
         let prev = match self.prev_close {
             None => {
                 self.prev_close = Some(close);
@@ -52,8 +58,9 @@ impl UltimateOscillator {
         };
         self.prev_close = Some(close);
 
-        let buying_pressure = close - low.min(prev);
-        let true_range = high.max(prev) - low.min(prev);
+        let min_low = low.min(prev);
+        let buying_pressure = close - min_low;
+        let true_range = high.max(prev) - min_low;
         self.bp.push_back(buying_pressure);
         self.tr.push_back(true_range);
         if self.bp.len() > 28 {
@@ -67,7 +74,10 @@ impl UltimateOscillator {
         let avg7 = Self::average(&self.bp, &self.tr, 7);
         let avg14 = Self::average(&self.bp, &self.tr, 14);
         let avg28 = Self::average(&self.bp, &self.tr, 28);
-        let v = (4.0 * avg7 + 2.0 * avg14 + avg28) / 7.0 * 100.0;
+        let four = Decimal::from(4);
+        let seven = Decimal::from(7);
+        let hundred = Decimal::from(100);
+        let v = (four * avg7 + Decimal::TWO * avg14 + avg28) / seven * hundred;
         self.last = Some(v);
         Some(v)
     }
@@ -81,16 +91,13 @@ impl Default for UltimateOscillator {
 
 impl Indicator for UltimateOscillator {
     type Input<'a> = &'a tantra_core::Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &tantra_core::Bar) -> Option<f64> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        self.update_hlc(high, low, close)
+    fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

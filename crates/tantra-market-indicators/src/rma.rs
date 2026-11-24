@@ -9,24 +9,35 @@
 //! RMA = (PrevRMA * (Period - 1) + Current) / Period
 //! ```
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+
 use crate::indicator::Indicator;
 
-/// Running Moving Average (Wilder's Smoothing).
+/// Most seed samples reserved up front by [`Rma::new`].
+const MAX_PREALLOC: usize = 4096;
+
+/// Running Moving Average (Wilder's Smoothing), computed in `Decimal`.
 #[derive(Clone, Debug)]
 pub struct Rma {
     period: usize,
-    values: Vec<f64>,
-    sum: f64,
-    rma: Option<f64>,
+    seed: Vec<Decimal>,
+    sum: Decimal,
+    rma: Option<Decimal>,
 }
 
 impl Rma {
     /// Creates a new RMA with the given period.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `period` is zero.
     pub fn new(period: usize) -> Self {
+        assert!(period > 0, "RMA period must be positive");
         Self {
             period,
-            values: Vec::with_capacity(period),
-            sum: 0.0,
+            seed: Vec::with_capacity(period.min(MAX_PREALLOC)),
+            sum: Decimal::ZERO,
             rma: None,
         }
     }
@@ -37,8 +48,17 @@ impl Rma {
     }
 
     /// Returns the current RMA value.
-    pub fn value(&self) -> Option<f64> {
+    pub fn value(&self) -> Option<Decimal> {
         self.rma
+    }
+
+    /// `f64` presentation shim over [`Indicator::update`].
+    ///
+    /// For chart presentation surfaces only; financial math must use the `Decimal` input.
+    /// Non-finite inputs return `None` without mutating state.
+    pub fn update_f64(&mut self, price: f64) -> Option<f64> {
+        let p = Decimal::try_from(price).ok()?;
+        self.update(p).and_then(|v| v.to_f64())
     }
 }
 
@@ -49,36 +69,38 @@ impl Default for Rma {
 }
 
 impl Indicator for Rma {
-    type Input<'a> = f64;
-    type Output = f64;
+    type Input<'a> = Decimal;
+    type Output = Decimal;
 
-    fn update(&mut self, input: f64) -> Option<f64> {
-        self.values.push(input);
-        self.sum += input;
-
-        if self.values.len() < self.period {
-            return None;
+    fn update(&mut self, input: Decimal) -> Option<Decimal> {
+        let n = Decimal::from(self.period);
+        match self.rma {
+            None => {
+                self.seed.push(input);
+                self.sum += input;
+                if self.seed.len() < self.period {
+                    return None;
+                }
+                let first = self.sum / n;
+                self.seed.clear();
+                self.rma = Some(first);
+                Some(first)
+            }
+            Some(prev) => {
+                let next = (prev * (n - Decimal::ONE) + input) / n;
+                self.rma = Some(next);
+                Some(next)
+            }
         }
-
-        if self.values.len() == self.period {
-            // First RMA = SMA of first `period` values
-            self.rma = Some(self.sum / self.period as f64);
-        } else {
-            // Wilder smoothing: (PrevRMA * (Period - 1) + Current) / Period
-            let prev = self.rma.unwrap_or(0.0);
-            self.rma = Some((prev * (self.period as f64 - 1.0) + input) / self.period as f64);
-        }
-
-        self.rma
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.rma
     }
 
     fn reset(&mut self) {
-        self.values.clear();
-        self.sum = 0.0;
+        self.seed.clear();
+        self.sum = Decimal::ZERO;
         self.rma = None;
     }
 }

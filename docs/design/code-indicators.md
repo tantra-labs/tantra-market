@@ -34,10 +34,8 @@ etc. read `&Bar` without cloning.
 | Volume | `Obv` |
 
 All are re-exported from `lib.rs` together with the `Indicator` trait.
-`bar_f64` / `quantity_f64` read exact `Price`/`Quantity` as the `f64` input
-legacy indicators consume; `Atr`, `Cmo`, `AdrPct`, `ChandelierExit`,
-`ElephantZones`, `OiLevels`, `GammaProfile`, and `OrderBlock` compute in exact
-`Decimal`.
+All streaming indicators compute in exact `Decimal` directly over `Decimal`,
+`&Bar`, or domain input structs (`ElephantZones`, `OiLevels`, `GammaProfile`).
 
 ## Screener (`screener.rs`)
 

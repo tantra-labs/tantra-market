@@ -2,9 +2,11 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// Commodity Channel Index (Lambert).
+/// Commodity Channel Index (Lambert), computed in `Decimal`.
 ///
 /// `CCI = (TP − SMA(TP, n)) / (0.015 * mean_deviation)`, where
 /// `TP = (H + L + C) / 3` and the mean deviation is the average of
@@ -14,8 +16,8 @@ use crate::indicator::Indicator;
 #[derive(Clone, Debug)]
 pub struct Cci {
     period: usize,
-    tps: VecDeque<f64>,
-    last: Option<f64>,
+    tps: VecDeque<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl Cci {
@@ -38,9 +40,10 @@ impl Cci {
         self.period
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<f64> {
-        let tp = (high + low + close) / 3.0;
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+        let three = Decimal::from(3);
+        let tp = (high + low + close) / three;
         self.tps.push_back(tp);
         if self.tps.len() > self.period {
             self.tps.pop_front();
@@ -49,13 +52,14 @@ impl Cci {
             return None;
         }
 
-        let n = self.period as f64;
-        let sma = self.tps.iter().sum::<f64>() / n;
-        let md = self.tps.iter().map(|t| (t - sma).abs()).sum::<f64>() / n;
-        let v = if md == 0.0 {
-            0.0
+        let n = Decimal::from(self.period);
+        let sma = self.tps.iter().copied().sum::<Decimal>() / n;
+        let md = self.tps.iter().map(|&t| (t - sma).abs()).sum::<Decimal>() / n;
+        let scale = Decimal::new(15, 3); // 0.015
+        let v = if md.is_zero() {
+            Decimal::ZERO
         } else {
-            (tp - sma) / (0.015 * md)
+            (tp - sma) / (scale * md)
         };
         self.last = Some(v);
         Some(v)
@@ -64,16 +68,13 @@ impl Cci {
 
 impl Indicator for Cci {
     type Input<'a> = &'a tantra_core::Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &tantra_core::Bar) -> Option<f64> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        self.update_hlc(high, low, close)
+    fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

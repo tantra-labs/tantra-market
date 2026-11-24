@@ -1,7 +1,9 @@
 //! Unit tests for `crate::stochastic`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc, hlc_dec};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Indicator, Stochastic};
 
 #[test]
@@ -34,7 +36,7 @@ fn flat_window_gives_fifty() {
     let mut s = Stochastic::new(2, 2);
     s.update(&hlc(10.0, 10.0, 10.0));
     let v = s.update(&hlc(10.0, 10.0, 10.0)).unwrap();
-    assert_close(v.k, 50.0);
+    assert_dec_close(v.k, dec!(50));
 }
 
 #[test]
@@ -43,11 +45,12 @@ fn known_triple_and_d() {
     s.update(&hlc(10.0, 5.0, 7.0));
     s.update(&hlc(11.0, 6.0, 9.0));
     let v = s.update(&hlc(9.0, 4.0, 6.0)).unwrap();
-    assert_close(v.k, 28.571428571428573);
+    let expected_k = dec!(100) * dec!(2) / dec!(7);
+    assert_dec_close(v.k, expected_k);
     assert_eq!(v.d, None);
     let v2 = s.update(&hlc(12.0, 7.0, 10.0)).unwrap();
-    assert_close(v2.k, 75.0);
-    assert_close(v2.d.unwrap(), (28.571428571428573 + 75.0) * 0.5);
+    assert_dec_close(v2.k, dec!(75));
+    assert_dec_close(v2.d.unwrap(), (expected_k + dec!(75)) / Decimal::TWO);
 }
 
 #[test]
@@ -62,37 +65,31 @@ fn reset_clears_state() {
 }
 
 fn reference(
-    bars: &[(f64, f64, f64)],
+    bars: &[(Decimal, Decimal, Decimal)],
     period: usize,
     d_period: usize,
-) -> Vec<Option<(f64, Option<f64>)>> {
+) -> Vec<Option<(Decimal, Option<Decimal>)>> {
     let mut out = Vec::with_capacity(bars.len());
-    let mut ks: Vec<f64> = Vec::new();
+    let mut ks: Vec<Decimal> = Vec::new();
     for i in 0..bars.len() {
         if i + 1 < period {
             out.push(None);
             continue;
         }
         let window = &bars[i + 1 - period..=i];
-        let hh = window
-            .iter()
-            .map(|(h, _, _)| *h)
-            .fold(f64::NEG_INFINITY, f64::max);
-        let ll = window
-            .iter()
-            .map(|(_, l, _)| *l)
-            .fold(f64::INFINITY, f64::min);
+        let hh = window.iter().map(|(h, _, _)| *h).max().unwrap();
+        let ll = window.iter().map(|(_, l, _)| *l).min().unwrap();
         let close = bars[i].2;
         let denom = hh - ll;
-        let k = if denom.abs() < f64::EPSILON {
-            50.0
+        let k = if denom.is_zero() {
+            dec!(50)
         } else {
-            100.0 * (close - ll) / denom
+            dec!(100) * (close - ll) / denom
         };
         ks.push(k);
         let d = if ks.len() >= d_period {
-            let sum: f64 = ks[ks.len() - d_period..].iter().sum();
-            Some(sum / d_period as f64)
+            let sum: Decimal = ks[ks.len() - d_period..].iter().copied().sum();
+            Some(sum / Decimal::from(d_period))
         } else {
             None
         };
@@ -103,13 +100,19 @@ fn reference(
 
 #[test]
 fn oracle_against_o_n_reference() {
-    let seq: Vec<(f64, f64, f64)> = (0..500)
+    let seq: Vec<(Decimal, Decimal, Decimal)> = (0..500)
         .map(|i: usize| {
-            let a = ((i.wrapping_mul(1664525).wrapping_add(1013904223)) % 10000) as f64 / 100.0;
-            let b = ((i.wrapping_mul(22695477).wrapping_add(1)) % 5000) as f64 / 100.0;
+            let a = Decimal::new(
+                ((i.wrapping_mul(1664525).wrapping_add(1013904223)) % 10000) as i64,
+                2,
+            );
+            let b = Decimal::new(
+                ((i.wrapping_mul(22695477).wrapping_add(1)) % 5000) as i64,
+                2,
+            );
             let lo = a.min(b);
-            let hi = a.max(b) + 0.01;
-            let cl = lo + (hi - lo) * 0.3;
+            let hi = a.max(b) + dec!(0.01);
+            let cl = lo + (hi - lo) * dec!(0.3);
             (hi, lo, cl)
         })
         .collect();
@@ -118,15 +121,15 @@ fn oracle_against_o_n_reference() {
             let mut s = Stochastic::new(period, d_period);
             let expected = reference(&seq, period, d_period);
             for (i, (h, l, c)) in seq.iter().enumerate() {
-                let got = s.update(&hlc(*h, *l, *c));
+                let got = s.update(&hlc_dec(*h, *l, *c));
                 match expected[i] {
                     None => assert_eq!(got, None, "period {period},{d_period} index {i}"),
                     Some((ek, ed)) => {
                         let gv = got.unwrap();
-                        assert_close(gv.k, ek);
+                        assert_dec_close(gv.k, ek);
                         match (gv.d, ed) {
                             (None, None) => {}
-                            (Some(a), Some(b)) => assert_close(a, b),
+                            (Some(a), Some(b)) => assert_dec_close(a, b),
                             _ => panic!("d mismatch at {i}"),
                         }
                     }

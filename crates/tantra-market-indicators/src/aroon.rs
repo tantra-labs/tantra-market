@@ -2,19 +2,21 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// The two Aroon lines, in `[0, 100]`.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The two Aroon lines, in `[0, 100]`, computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct AroonValue {
     /// How recently the `period`-bar window hit its highest high.
-    pub up: f64,
+    pub up: Decimal,
     /// How recently the `period`-bar window hit its lowest low.
-    pub down: f64,
+    pub down: Decimal,
 }
 
-/// Aroon Up/Down.
+/// Aroon Up/Down, computed in `Decimal`.
 ///
 /// `Aroon Up = 100 * (period − bars_since_highest_high) / period`, and
 /// symmetrically for Down, over the last `period + 1` bars. A value near 100
@@ -22,8 +24,8 @@ pub struct AroonValue {
 #[derive(Clone, Debug)]
 pub struct Aroon {
     period: usize,
-    highs: VecDeque<f64>,
-    lows: VecDeque<f64>,
+    highs: VecDeque<Decimal>,
+    lows: VecDeque<Decimal>,
     last: Option<AroonValue>,
 }
 
@@ -48,8 +50,8 @@ impl Aroon {
         self.period
     }
 
-    /// Feeds one bar as raw `high`/`low`.
-    pub fn update_hl(&mut self, high: f64, low: f64) -> Option<AroonValue> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`.
+    pub fn update_hl(&mut self, high: Decimal, low: Decimal) -> Option<AroonValue> {
         self.highs.push_back(high);
         self.lows.push_back(low);
         if self.highs.len() > self.period + 1 {
@@ -61,8 +63,8 @@ impl Aroon {
         }
 
         let n = self.highs.len();
-        let max_high = self.highs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-        let min_low = self.lows.iter().copied().fold(f64::INFINITY, f64::min);
+        let max_high = self.highs.iter().copied().max().expect("non-empty window");
+        let min_low = self.lows.iter().copied().min().expect("non-empty window");
 
         // Bars since the extreme, counting from the most recent bar (index n-1)
         // backwards; the most recent occurrence wins ties.
@@ -80,10 +82,11 @@ impl Aroon {
             }
         }
 
-        let p = self.period as f64;
+        let p = Decimal::from(self.period);
+        let hundred = Decimal::from(100);
         let v = AroonValue {
-            up: 100.0 * (p - since_high as f64) / p,
-            down: 100.0 * (p - since_low as f64) / p,
+            up: hundred * (p - Decimal::from(since_high)) / p,
+            down: hundred * (p - Decimal::from(since_low)) / p,
         };
         self.last = Some(v);
         Some(v)
@@ -95,9 +98,7 @@ impl Indicator for Aroon {
     type Output = AroonValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<AroonValue> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        self.update_hl(high, low)
+        self.update_hl(bar.high.0, bar.low.0)
     }
 
     fn value(&self) -> Option<AroonValue> {

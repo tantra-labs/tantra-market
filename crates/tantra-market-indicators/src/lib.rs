@@ -3,22 +3,25 @@
 //! Incremental technical indicators for the Tantra platform.
 //!
 //! Every indicator implements [`Indicator`] and consumes inputs one at a
-//! time. Nothing buffers the full series; each indicator holds only the
-//! state it needs, so it can run over an unbounded live stream.
+//! time in exact `Decimal` arithmetic. Nothing buffers the full series; each
+//! indicator holds only the state it needs, so it can run over an unbounded
+//! live stream.
 //!
 //! # Example
 //!
 //! ```
-//! use tantra_market_indicators::{Indicator, Sma, Rsi, BollingerBands};
+//! use rust_decimal::Decimal;
+//! use tantra_market_indicators::{BollingerBands, Indicator, Rsi, Sma};
 //!
 //! let mut sma = Sma::new(20);
 //! let mut rsi = Rsi::new(14);
-//! let mut bb  = BollingerBands::new(20, 2.0);
+//! let mut bb  = BollingerBands::new(20, Decimal::TWO);
 //!
-//! for px in [100.0, 101.0, 99.5, 102.0, 103.5] {
-//!     let _ = sma.update(px);
-//!     let _ = rsi.update(px);
-//!     let _ = bb.update(px);
+//! for px in [100, 101, 99, 102, 104] {
+//!     let d = Decimal::from(px);
+//!     let _ = sma.update(d);
+//!     let _ = rsi.update(d);
+//!     let _ = bb.update(d);
 //! }
 //! ```
 
@@ -66,6 +69,7 @@ pub mod vwap;
 pub mod williams_r;
 
 pub use adr_pct::AdrPct;
+pub use adx::Adx;
 pub use aroon::{Aroon, AroonValue};
 pub use atr::Atr;
 pub use bollinger::{BollingerBands, BollingerValue};
@@ -104,20 +108,3 @@ pub use ultimate_oscillator::UltimateOscillator;
 pub use vortex::{Vortex, VortexValue};
 pub use vwap::Vwap;
 pub use williams_r::WilliamsR;
-
-use rust_decimal::prelude::ToPrimitive;
-use tantra_core::{Price, Quantity};
-
-/// Reads an exact [`Price`] as the `f64` input most indicators consume. This
-/// is the documented indicator-layer float boundary: indicators are numeric
-/// transforms, not domain aggregates, so they compute in `f64` exactly like
-/// the rest of this crate's indicator catalog.
-pub(crate) fn bar_f64(price: &Price) -> f64 {
-    price.value().to_f64().unwrap_or(0.0)
-}
-
-/// Reads an exact [`Quantity`] (e.g. volume) as the `f64` input a volume-aware
-/// indicator consumes.
-pub(crate) fn quantity_f64(qty: &Quantity) -> f64 {
-    qty.value().to_f64().unwrap_or(0.0)
-}

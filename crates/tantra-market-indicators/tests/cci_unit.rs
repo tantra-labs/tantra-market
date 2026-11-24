@@ -1,7 +1,8 @@
 //! Unit tests for `crate::cci`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc, hlc_dec};
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Cci, Indicator};
 
 #[test]
@@ -17,10 +18,10 @@ fn golden_values_for_a_linear_run() {
     // TPs: 9, 10, 11, 10.
     assert_eq!(c.update(&hlc(10.0, 8.0, 9.0)), None);
     assert_eq!(c.update(&hlc(11.0, 9.0, 10.0)), None);
-    // sma = 10, mean deviation = 2/3 → (11 − 10) / (0.015 · 2/3) = 100.
-    assert_close(c.update(&hlc(12.0, 10.0, 11.0)).unwrap(), 100.0);
-    // sma = 31/3, md = 4/9 → (10 − 31/3) / (0.015 · 4/9) = −50.
-    assert_close(c.update(&hlc(11.0, 9.0, 10.0)).unwrap(), -50.0);
+    // sma = 10, mean deviation = 2/3 -> (11 - 10) / (0.015 * 2/3) = 100.
+    assert_dec_close(c.update(&hlc(12.0, 10.0, 11.0)).unwrap(), dec!(100));
+    // sma = 31/3, md = 4/9 -> (10 - 31/3) / (0.015 * 4/9) = -50.
+    assert_dec_close(c.update(&hlc(11.0, 9.0, 10.0)).unwrap(), dec!(-50));
 }
 
 #[test]
@@ -30,15 +31,19 @@ fn constant_bars_give_zero() {
     for _ in 0..10 {
         last = c.update(&hlc(10.0, 8.0, 9.0));
     }
-    assert_close(last.unwrap(), 0.0);
+    assert_dec_close(last.unwrap(), dec!(0));
 }
 
 #[test]
 fn update_hlc_matches_update_with_a_bar() {
     let mut by_bar = Cci::new(3);
     let mut by_hlc = Cci::new(3);
-    for (h, l, c) in [(10.0, 8.0, 9.0), (11.0, 9.0, 10.0), (12.0, 10.0, 11.0)] {
-        assert_eq!(by_hlc.update_hlc(h, l, c), by_bar.update(&hlc(h, l, c)));
+    for (h, l, c) in [
+        (dec!(10), dec!(8), dec!(9)),
+        (dec!(11), dec!(9), dec!(10)),
+        (dec!(12), dec!(10), dec!(11)),
+    ] {
+        assert_eq!(by_hlc.update_hlc(h, l, c), by_bar.update(&hlc_dec(h, l, c)));
     }
 }
 

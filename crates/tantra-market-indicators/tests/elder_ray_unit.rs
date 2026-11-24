@@ -1,7 +1,9 @@
 //! Unit tests for `crate::elder_ray`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{ElderRay, Indicator};
 
 #[test]
@@ -17,8 +19,8 @@ fn first_value_appears_once_the_ema_primes() {
     assert_eq!(e.update(&hlc(12.0, 10.0, 11.0)), None);
     let v = e.update(&hlc(13.0, 11.0, 12.0)).unwrap();
     // EMA(2) seed = (11 + 12) / 2 = 11.5.
-    assert_close(v.bull_power, 13.0 - 11.5); // 1.5
-    assert_close(v.bear_power, 11.0 - 11.5); // -0.5
+    assert_dec_close(v.bull_power, dec!(1.5));
+    assert_dec_close(v.bear_power, dec!(-0.5));
 }
 
 #[test]
@@ -26,9 +28,10 @@ fn rising_trend_shows_positive_bull_power() {
     let mut e = ElderRay::new(3);
     let mut last = None;
     for i in 1..=10 {
-        last = e.update_hlc(i as f64 + 1.0, i as f64, i as f64 + 0.5);
+        let d = Decimal::from(i);
+        last = e.update_hlc(d + Decimal::ONE, d, d + dec!(0.5));
     }
-    assert!(last.unwrap().bull_power > 0.0);
+    assert!(last.unwrap().bull_power > Decimal::ZERO);
 }
 
 #[test]

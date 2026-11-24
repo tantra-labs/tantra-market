@@ -1,7 +1,9 @@
 //! Unit tests for `crate::williams_r`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc, hlc_dec};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Indicator, WilliamsR};
 
 #[test]
@@ -27,14 +29,14 @@ fn flat_window_gives_minus_fifty() {
     let mut w = WilliamsR::new(2);
     w.update(&hlc(10.0, 10.0, 10.0));
     let v = w.update(&hlc(10.0, 10.0, 10.0)).unwrap();
-    assert_close(v, -50.0);
+    assert_dec_close(v, dec!(-50));
 }
 
 #[test]
 fn period_one_yields_known_value() {
     let mut w = WilliamsR::new(1);
     let v = w.update(&hlc(10.0, 5.0, 7.0)).unwrap();
-    assert_close(v, -60.0);
+    assert_dec_close(v, dec!(-60));
 }
 
 #[test]
@@ -43,7 +45,7 @@ fn known_triple() {
     w.update(&hlc(10.0, 5.0, 9.0));
     w.update(&hlc(12.0, 6.0, 11.0));
     let r = w.update(&hlc(11.0, 4.0, 6.0)).unwrap();
-    assert_close(r, -75.0);
+    assert_dec_close(r, dec!(-75));
 }
 
 #[test]
@@ -57,7 +59,7 @@ fn reset_clears_state() {
     assert_eq!(w.update(&hlc(12.0, 7.0, 11.0)), None);
 }
 
-fn reference(bars: &[(f64, f64, f64)], period: usize) -> Vec<Option<f64>> {
+fn reference(bars: &[(Decimal, Decimal, Decimal)], period: usize) -> Vec<Option<Decimal>> {
     let mut out = Vec::with_capacity(bars.len());
     for i in 0..bars.len() {
         if i + 1 < period {
@@ -65,20 +67,14 @@ fn reference(bars: &[(f64, f64, f64)], period: usize) -> Vec<Option<f64>> {
             continue;
         }
         let window = &bars[i + 1 - period..=i];
-        let hh = window
-            .iter()
-            .map(|(h, _, _)| *h)
-            .fold(f64::NEG_INFINITY, f64::max);
-        let ll = window
-            .iter()
-            .map(|(_, l, _)| *l)
-            .fold(f64::INFINITY, f64::min);
+        let hh = window.iter().map(|(h, _, _)| *h).max().unwrap();
+        let ll = window.iter().map(|(_, l, _)| *l).min().unwrap();
         let close = bars[i].2;
         let denom = hh - ll;
-        let v = if denom.abs() < f64::EPSILON {
-            -50.0
+        let v = if denom.is_zero() {
+            dec!(-50)
         } else {
-            -100.0 * (hh - close) / denom
+            dec!(-100) * (hh - close) / denom
         };
         out.push(Some(v));
     }
@@ -87,13 +83,19 @@ fn reference(bars: &[(f64, f64, f64)], period: usize) -> Vec<Option<f64>> {
 
 #[test]
 fn oracle_against_o_n_reference() {
-    let seq: Vec<(f64, f64, f64)> = (0..500)
+    let seq: Vec<(Decimal, Decimal, Decimal)> = (0..500)
         .map(|i: usize| {
-            let a = ((i.wrapping_mul(1664525).wrapping_add(1013904223)) % 10000) as f64 / 100.0;
-            let b = ((i.wrapping_mul(22695477).wrapping_add(1)) % 5000) as f64 / 100.0;
-            let lo = a.min(b).min(0.0);
-            let hi = (a.max(b) + 0.01).max(0.01);
-            let cl = lo + (hi - lo) * 0.3;
+            let a = Decimal::new(
+                ((i.wrapping_mul(1664525).wrapping_add(1013904223)) % 10000) as i64,
+                2,
+            );
+            let b = Decimal::new(
+                ((i.wrapping_mul(22695477).wrapping_add(1)) % 5000) as i64,
+                2,
+            );
+            let lo = a.min(b).min(Decimal::ZERO);
+            let hi = (a.max(b) + dec!(0.01)).max(dec!(0.01));
+            let cl = lo + (hi - lo) * dec!(0.3);
             (hi, lo, cl)
         })
         .collect();
@@ -101,10 +103,10 @@ fn oracle_against_o_n_reference() {
         let mut w = WilliamsR::new(period);
         let expected = reference(&seq, period);
         for (i, (h, l, c)) in seq.iter().enumerate() {
-            let got = w.update(&hlc(*h, *l, *c));
+            let got = w.update(&hlc_dec(*h, *l, *c));
             match expected[i] {
                 None => assert_eq!(got, None, "period {period} index {i}"),
-                Some(e) => assert_close(got.unwrap(), e),
+                Some(e) => assert_dec_close(got.unwrap(), e),
             }
         }
     }

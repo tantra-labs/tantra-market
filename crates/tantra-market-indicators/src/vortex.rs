@@ -2,19 +2,21 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// The two Vortex lines.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The two Vortex lines, computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct VortexValue {
     /// `Σ|H − prev_low| / ΣTR` over the window (positive-trend measure).
-    pub vi_plus: f64,
+    pub vi_plus: Decimal,
     /// `Σ|L − prev_high| / ΣTR` over the window (negative-trend measure).
-    pub vi_minus: f64,
+    pub vi_minus: Decimal,
 }
 
-/// Vortex Indicator.
+/// Vortex Indicator, computed in `Decimal`.
 ///
 /// True range here is `max(H − L, |H − prev_close|, |L − prev_close|)`. A
 /// `vi_plus` crossing above `vi_minus` suggests an up-trend, and vice versa.
@@ -22,12 +24,12 @@ pub struct VortexValue {
 #[derive(Clone, Debug)]
 pub struct Vortex {
     period: usize,
-    prev_close: Option<f64>,
-    prev_high: Option<f64>,
-    prev_low: Option<f64>,
-    plus_vm: VecDeque<f64>,
-    minus_vm: VecDeque<f64>,
-    tr: VecDeque<f64>,
+    prev_close: Option<Decimal>,
+    prev_high: Option<Decimal>,
+    prev_low: Option<Decimal>,
+    plus_vm: VecDeque<Decimal>,
+    minus_vm: VecDeque<Decimal>,
+    tr: VecDeque<Decimal>,
     last: Option<VortexValue>,
 }
 
@@ -56,8 +58,13 @@ impl Vortex {
         self.period
     }
 
-    /// Feeds one bar as raw `high`/`low`/`close`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<VortexValue> {
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<VortexValue> {
         let prev_close = match self.prev_close {
             None => {
                 self.prev_close = Some(close);
@@ -91,16 +98,16 @@ impl Vortex {
             return None;
         }
 
-        let sum_tr: f64 = self.tr.iter().sum();
-        let v = if sum_tr == 0.0 {
+        let sum_tr: Decimal = self.tr.iter().copied().sum();
+        let v = if sum_tr.is_zero() {
             VortexValue {
-                vi_plus: 0.0,
-                vi_minus: 0.0,
+                vi_plus: Decimal::ZERO,
+                vi_minus: Decimal::ZERO,
             }
         } else {
             VortexValue {
-                vi_plus: self.plus_vm.iter().sum::<f64>() / sum_tr,
-                vi_minus: self.minus_vm.iter().sum::<f64>() / sum_tr,
+                vi_plus: self.plus_vm.iter().copied().sum::<Decimal>() / sum_tr,
+                vi_minus: self.minus_vm.iter().copied().sum::<Decimal>() / sum_tr,
             }
         };
         self.last = Some(v);
@@ -113,10 +120,7 @@ impl Indicator for Vortex {
     type Output = VortexValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<VortexValue> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
-        self.update_hlc(high, low, close)
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
     fn value(&self) -> Option<VortexValue> {

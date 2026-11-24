@@ -2,10 +2,12 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::ema::Ema;
 use crate::indicator::Indicator;
 
-/// Mass Index.
+/// Mass Index, computed in `Decimal`.
 ///
 /// `Σᵢ ratio[i]` over the last `period` ratios, where
 /// `ratio = EMA(9, range) / EMA(9, EMA(9, range))` and `range = high − low`.
@@ -17,8 +19,8 @@ pub struct MassIndex {
     period: usize,
     ema_range: Ema,
     ema_ema_range: Ema,
-    ratios: VecDeque<f64>,
-    last: Option<f64>,
+    ratios: VecDeque<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl MassIndex {
@@ -43,14 +45,14 @@ impl MassIndex {
         self.period
     }
 
-    /// Feeds one bar given as raw `high`/`low` and returns the Mass Index once
+    /// Feeds one bar given as raw `Decimal` `high`/`low` and returns the Mass Index once
     /// warmed up. Identical to [`Indicator::update`] on a bar with those
     /// fields; the close is unused.
-    pub fn update_hl(&mut self, high: f64, low: f64) -> Option<f64> {
-        let range = (high - low).max(0.0);
+    pub fn update_hl(&mut self, high: Decimal, low: Decimal) -> Option<Decimal> {
+        let range = (high - low).max(Decimal::ZERO);
         let e1 = self.ema_range.update(range)?;
         let e2 = self.ema_ema_range.update(e1)?;
-        let ratio = if e2 == 0.0 { 0.0 } else { e1 / e2 };
+        let ratio = if e2.is_zero() { Decimal::ZERO } else { e1 / e2 };
 
         self.ratios.push_back(ratio);
         if self.ratios.len() > self.period {
@@ -59,7 +61,7 @@ impl MassIndex {
         if self.ratios.len() < self.period {
             return None;
         }
-        let v = self.ratios.iter().sum();
+        let v: Decimal = self.ratios.iter().copied().sum();
         self.last = Some(v);
         Some(v)
     }
@@ -67,15 +69,13 @@ impl MassIndex {
 
 impl Indicator for MassIndex {
     type Input<'a> = &'a tantra_core::Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &tantra_core::Bar) -> Option<f64> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        self.update_hl(high, low)
+    fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
+        self.update_hl(bar.high.0, bar.low.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

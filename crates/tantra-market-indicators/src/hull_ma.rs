@@ -2,22 +2,25 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::{Decimal, MathematicalOps};
+
 use crate::indicator::Indicator;
 
-/// Weighted moving average of a slice: weights `n, n-1, …, 1` on the most
-/// recent values.
-fn wma(values: &[f64]) -> f64 {
-    let mut weight = 0.0;
-    let mut sum = 0.0;
-    for (i, v) in values.iter().enumerate() {
-        let w = i as f64 + 1.0;
+/// Weighted moving average of a `VecDeque<Decimal>`: weights `1, 2, …, len`
+/// ordered oldest-first so the largest weight falls on the most recent value.
+fn wma<'a>(values: impl Iterator<Item = &'a Decimal>) -> Decimal {
+    let mut weight = Decimal::ZERO;
+    let mut sum = Decimal::ZERO;
+    for (i, &v) in values.enumerate() {
+        let w = Decimal::from(i + 1);
         weight += w;
         sum += v * w;
     }
     sum / weight
 }
 
-/// Hull Moving Average.
+/// Hull Moving Average, computed in `Decimal`.
 ///
 /// `HMA = WMA(2 * WMA(period/2) − WMA(period), sqrt(period))`, with both
 /// inner WMAs over the same (recent) price window. The first value appears
@@ -27,9 +30,9 @@ pub struct HullMa {
     period: usize,
     half: usize,
     sqrt: usize,
-    prices: VecDeque<f64>,
-    intermediates: VecDeque<f64>,
-    last: Option<f64>,
+    prices: VecDeque<Decimal>,
+    intermediates: VecDeque<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl HullMa {
@@ -41,8 +44,11 @@ impl HullMa {
     pub fn new(period: usize) -> Self {
         assert!(period > 0, "Hull MA period must be positive");
         let half = (period / 2).max(1);
-        let sqrt = (period as f64).sqrt().round() as usize;
-        let sqrt = sqrt.max(1);
+        let sqrt = Decimal::from(period)
+            .sqrt()
+            .and_then(|d| d.round().to_usize())
+            .unwrap_or(1)
+            .max(1);
         Self {
             period,
             half,
@@ -57,13 +63,22 @@ impl HullMa {
     pub fn period(&self) -> usize {
         self.period
     }
+
+    /// `f64` presentation shim over [`Indicator::update`].
+    ///
+    /// For chart presentation surfaces only; financial math must use the `Decimal` input.
+    /// Non-finite inputs return `None` without mutating state.
+    pub fn update_f64(&mut self, price: f64) -> Option<f64> {
+        let p = Decimal::try_from(price).ok()?;
+        self.update(p).and_then(|v| v.to_f64())
+    }
 }
 
 impl Indicator for HullMa {
-    type Input<'a> = f64;
-    type Output = f64;
+    type Input<'a> = Decimal;
+    type Output = Decimal;
 
-    fn update(&mut self, price: f64) -> Option<f64> {
+    fn update(&mut self, price: Decimal) -> Option<Decimal> {
         self.prices.push_back(price);
         if self.prices.len() > self.period {
             self.prices.pop_front();
@@ -76,9 +91,8 @@ impl Indicator for HullMa {
         // recent `half` values in chronological (oldest-first) order so the
         // weighted-average weights fall on the most recent values.
         let start = self.prices.len() - self.half;
-        let recent = self.prices.iter().skip(start).copied().collect::<Vec<_>>();
         let intermediate =
-            2.0 * wma(&recent) - wma(&self.prices.iter().copied().collect::<Vec<_>>());
+            Decimal::TWO * wma(self.prices.iter().skip(start)) - wma(self.prices.iter());
         self.intermediates.push_back(intermediate);
         if self.intermediates.len() > self.sqrt {
             self.intermediates.pop_front();
@@ -87,12 +101,12 @@ impl Indicator for HullMa {
             return None;
         }
 
-        let v = wma(&self.intermediates.iter().copied().collect::<Vec<_>>());
+        let v = wma(self.intermediates.iter());
         self.last = Some(v);
         Some(v)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

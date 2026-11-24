@@ -1,7 +1,8 @@
 //! Unit tests for `crate::mass_index`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc};
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Indicator, MassIndex};
 
 #[test]
@@ -20,7 +21,7 @@ fn constant_range_gives_a_constant_mass_index_of_one_per_bar() {
     for _ in 0..80 {
         last = m.update(&hlc(10.0, 8.0, 9.0));
     }
-    assert_close(last.unwrap(), 25.0);
+    assert_dec_close(last.unwrap(), dec!(25));
 }
 
 #[test]

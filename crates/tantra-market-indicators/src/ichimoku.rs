@@ -2,28 +2,30 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// The five Ichimoku lines as of the latest bar.
+/// The five Ichimoku lines as of the latest bar, computed in `Decimal`.
 ///
 /// The 26-period *displacement* of the Senkou/Chikou spans is a charting
 /// concern; a streaming indicator reports the current values.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct IchimokuValue {
     /// Tenkan-sen: midpoint of the 9-bar high/low range.
-    pub tenkan: f64,
+    pub tenkan: Decimal,
     /// Kijun-sen: midpoint of the 26-bar high/low range.
-    pub kijun: f64,
+    pub kijun: Decimal,
     /// Senkou Span A: `(tenkan + kijun) / 2`.
-    pub senkou_a: f64,
+    pub senkou_a: Decimal,
     /// Senkou Span B: midpoint of the 52-bar high/low range.
-    pub senkou_b: f64,
+    pub senkou_b: Decimal,
     /// Chikou Span: the latest close (the 26-bar back-shift is charting).
-    pub chikou: f64,
+    pub chikou: Decimal,
 }
 
-/// Ichimoku Cloud (default 9/26/52 periods).
+/// Ichimoku Cloud (default 9/26/52 periods), computed in `Decimal`.
 ///
 /// The first value appears after 52 bars (the Senkou B window).
 #[derive(Clone, Debug)]
@@ -31,9 +33,8 @@ pub struct Ichimoku {
     tenkan_period: usize,
     kijun_period: usize,
     senkou_b_period: usize,
-    highs: VecDeque<f64>,
-    lows: VecDeque<f64>,
-    closes: VecDeque<f64>,
+    highs: VecDeque<Decimal>,
+    lows: VecDeque<Decimal>,
     last: Option<IchimokuValue>,
 }
 
@@ -60,26 +61,27 @@ impl Ichimoku {
             senkou_b_period,
             highs: VecDeque::with_capacity(senkou_b_period),
             lows: VecDeque::with_capacity(senkou_b_period),
-            closes: VecDeque::with_capacity(senkou_b_period),
             last: None,
         }
     }
 
     /// Midpoint of the last `period` bars: `(max high + min low) / 2`.
-    fn midpoint(highs: &VecDeque<f64>, lows: &VecDeque<f64>, period: usize) -> f64 {
+    fn midpoint(highs: &VecDeque<Decimal>, lows: &VecDeque<Decimal>, period: usize) -> Decimal {
         let hi = highs
             .iter()
             .rev()
             .take(period)
             .copied()
-            .fold(f64::NEG_INFINITY, f64::max);
+            .max()
+            .expect("non-empty window");
         let lo = lows
             .iter()
             .rev()
             .take(period)
             .copied()
-            .fold(f64::INFINITY, f64::min);
-        (hi + lo) / 2.0
+            .min()
+            .expect("non-empty window");
+        (hi + lo) / Decimal::TWO
     }
 }
 
@@ -88,16 +90,14 @@ impl Indicator for Ichimoku {
     type Output = IchimokuValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<IchimokuValue> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        let close = crate::bar_f64(&bar.close);
+        let high = bar.high.0;
+        let low = bar.low.0;
+        let close = bar.close.0;
         self.highs.push_back(high);
         self.lows.push_back(low);
-        self.closes.push_back(close);
         if self.highs.len() > self.senkou_b_period {
             self.highs.pop_front();
             self.lows.pop_front();
-            self.closes.pop_front();
         }
         if self.highs.len() < self.senkou_b_period {
             return None;
@@ -105,7 +105,7 @@ impl Indicator for Ichimoku {
 
         let tenkan = Self::midpoint(&self.highs, &self.lows, self.tenkan_period);
         let kijun = Self::midpoint(&self.highs, &self.lows, self.kijun_period);
-        let senkou_a = (tenkan + kijun) / 2.0;
+        let senkou_a = (tenkan + kijun) / Decimal::TWO;
         let senkou_b = Self::midpoint(&self.highs, &self.lows, self.senkou_b_period);
 
         let v = IchimokuValue {
@@ -126,7 +126,6 @@ impl Indicator for Ichimoku {
     fn reset(&mut self) {
         self.highs.clear();
         self.lows.clear();
-        self.closes.clear();
         self.last = None;
     }
 }

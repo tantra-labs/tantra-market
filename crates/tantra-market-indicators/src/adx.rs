@@ -15,48 +15,57 @@
 //! ADX = Smoothed(DX)
 //! ```
 
-use crate::indicator::Indicator;
-use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use tantra_core::Bar;
 
-/// ADX (Average Directional Index) with +DI and -DI.
+use crate::indicator::Indicator;
+
+/// ADX (Average Directional Index) with +DI and -DI, computed in `Decimal`.
 ///
-/// Returns the ADX value as output. Use `plus_di()`, `minus_di()`, and `dx()`
-/// to access intermediate values.
+/// Uses Welles Wilder smoothing with O(1) state. The first ADX value appears
+/// after `2 * period` bars (`1` baseline + `period` bars for initial +DI/-DI/DX
+/// + `period - 1` additional bars to smooth the first `period` DX values).
 #[derive(Clone, Debug)]
 pub struct Adx {
     period: usize,
-    highs: Vec<f64>,
-    lows: Vec<f64>,
-    closes: Vec<f64>,
-    plus_di: Vec<f64>,
-    minus_di: Vec<f64>,
-    dx: Vec<f64>,
-    adx: Vec<f64>,
-    atr_sum: f64,
-    plus_dm_sum: f64,
-    minus_dm_sum: f64,
-    dx_sum: f64,
-    initialized: bool,
+    prev_high: Option<Decimal>,
+    prev_low: Option<Decimal>,
+    prev_close: Option<Decimal>,
+    dm_samples: usize,
+    smoothed_tr: Decimal,
+    smoothed_plus_dm: Decimal,
+    smoothed_minus_dm: Decimal,
+    dx_samples: usize,
+    dx_sum: Decimal,
+    last_plus_di: Option<Decimal>,
+    last_minus_di: Option<Decimal>,
+    last_dx: Option<Decimal>,
+    last_adx: Option<Decimal>,
 }
 
 impl Adx {
     /// Creates a new ADX with the given period (typically 14).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `period` is zero.
     pub fn new(period: usize) -> Self {
+        assert!(period > 0, "ADX period must be positive");
         Self {
             period,
-            highs: Vec::with_capacity(period + 1),
-            lows: Vec::with_capacity(period + 1),
-            closes: Vec::with_capacity(period + 1),
-            plus_di: Vec::with_capacity(period),
-            minus_di: Vec::with_capacity(period),
-            dx: Vec::with_capacity(period),
-            adx: Vec::with_capacity(period),
-            atr_sum: 0.0,
-            plus_dm_sum: 0.0,
-            minus_dm_sum: 0.0,
-            dx_sum: 0.0,
-            initialized: false,
+            prev_high: None,
+            prev_low: None,
+            prev_close: None,
+            dm_samples: 0,
+            smoothed_tr: Decimal::ZERO,
+            smoothed_plus_dm: Decimal::ZERO,
+            smoothed_minus_dm: Decimal::ZERO,
+            dx_samples: 0,
+            dx_sum: Decimal::ZERO,
+            last_plus_di: None,
+            last_minus_di: None,
+            last_dx: None,
+            last_adx: None,
         }
     }
 
@@ -66,166 +75,133 @@ impl Adx {
     }
 
     /// Returns the current +DI value.
-    pub fn plus_di(&self) -> Option<f64> {
-        self.plus_di.last().copied()
+    pub fn plus_di(&self) -> Option<Decimal> {
+        self.last_plus_di
     }
 
     /// Returns the current -DI value.
-    pub fn minus_di(&self) -> Option<f64> {
-        self.minus_di.last().copied()
+    pub fn minus_di(&self) -> Option<Decimal> {
+        self.last_minus_di
     }
 
     /// Returns the current DX value.
-    pub fn dx(&self) -> Option<f64> {
-        self.dx.last().copied()
+    pub fn dx(&self) -> Option<Decimal> {
+        self.last_dx
+    }
+
+    /// Feeds one bar as raw `Decimal` `high`/`low`/`close`.
+    pub fn update_hlc(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<Decimal> {
+        let (Some(prev_high), Some(prev_low), Some(prev_close)) =
+            (self.prev_high, self.prev_low, self.prev_close)
+        else {
+            self.prev_high = Some(high);
+            self.prev_low = Some(low);
+            self.prev_close = Some(close);
+            return None;
+        };
+
+        self.prev_high = Some(high);
+        self.prev_low = Some(low);
+        self.prev_close = Some(close);
+
+        let up_move = high - prev_high;
+        let down_move = prev_low - low;
+
+        let plus_dm = if up_move > down_move && up_move > Decimal::ZERO {
+            up_move
+        } else {
+            Decimal::ZERO
+        };
+        let minus_dm = if down_move > up_move && down_move > Decimal::ZERO {
+            down_move
+        } else {
+            Decimal::ZERO
+        };
+
+        let tr = (high - low)
+            .max((high - prev_close).abs())
+            .max((low - prev_close).abs());
+
+        let n = Decimal::from(self.period);
+        let hundred = Decimal::from(100);
+
+        self.dm_samples += 1;
+        if self.dm_samples <= self.period {
+            self.smoothed_tr += tr;
+            self.smoothed_plus_dm += plus_dm;
+            self.smoothed_minus_dm += minus_dm;
+            if self.dm_samples < self.period {
+                return None;
+            }
+        } else {
+            let decay = n - Decimal::ONE;
+            self.smoothed_tr = self.smoothed_tr * decay / n + tr;
+            self.smoothed_plus_dm = self.smoothed_plus_dm * decay / n + plus_dm;
+            self.smoothed_minus_dm = self.smoothed_minus_dm * decay / n + minus_dm;
+        }
+
+        let (plus_di, minus_di) = if self.smoothed_tr.is_zero() {
+            (Decimal::ZERO, Decimal::ZERO)
+        } else {
+            (
+                hundred * self.smoothed_plus_dm / self.smoothed_tr,
+                hundred * self.smoothed_minus_dm / self.smoothed_tr,
+            )
+        };
+        let di_sum = plus_di + minus_di;
+        let dx = if di_sum.is_zero() {
+            Decimal::ZERO
+        } else {
+            hundred * (plus_di - minus_di).abs() / di_sum
+        };
+
+        self.last_plus_di = Some(plus_di);
+        self.last_minus_di = Some(minus_di);
+        self.last_dx = Some(dx);
+
+        if let Some(prev_adx) = self.last_adx {
+            let next_adx = (prev_adx * (n - Decimal::ONE) + dx) / n;
+            self.last_adx = Some(next_adx);
+            Some(next_adx)
+        } else {
+            self.dx_samples += 1;
+            self.dx_sum += dx;
+            if self.dx_samples == self.period {
+                let first_adx = self.dx_sum / n;
+                self.last_adx = Some(first_adx);
+                Some(first_adx)
+            } else {
+                None
+            }
+        }
     }
 }
 
 impl Indicator for Adx {
     type Input<'a> = &'a Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &Bar) -> Option<f64> {
-        let high = bar.high.0.to_f64().unwrap_or(0.0);
-        let low = bar.low.0.to_f64().unwrap_or(0.0);
-        let close = bar.close.0.to_f64().unwrap_or(0.0);
-
-        self.highs.push(high);
-        self.lows.push(low);
-        self.closes.push(close);
-
-        if self.highs.len() < 2 {
-            return None;
-        }
-
-        let prev_high = self.highs[self.highs.len() - 2];
-        let prev_low = self.lows[self.lows.len() - 2];
-        let prev_close = self.closes[self.closes.len() - 2];
-
-        // Calculate +DM and -DM
-        let up_move = high - prev_high;
-        let down_move = prev_low - low;
-
-        let plus_dm = if up_move > down_move && up_move > 0.0 {
-            up_move
-        } else {
-            0.0
-        };
-        let minus_dm = if down_move > up_move && down_move > 0.0 {
-            down_move
-        } else {
-            0.0
-        };
-
-        // True Range
-        let tr1 = high - low;
-        let tr2 = (high - prev_close).abs();
-        let tr3 = (low - prev_close).abs();
-        let tr = tr1.max(tr2).max(tr3);
-
-        // Initialize sums
-        if self.highs.len() <= self.period + 1 {
-            self.atr_sum += tr;
-            self.plus_dm_sum += plus_dm;
-            self.minus_dm_sum += minus_dm;
-
-            if self.highs.len() == self.period + 1 {
-                // Initial values
-                let atr = self.atr_sum / self.period as f64;
-                let plus_di_val = if atr > 0.0 {
-                    100.0 * self.plus_dm_sum / atr
-                } else {
-                    0.0
-                };
-                let minus_di_val = if atr > 0.0 {
-                    100.0 * self.minus_dm_sum / atr
-                } else {
-                    0.0
-                };
-                let dx = if plus_di_val + minus_di_val > 0.0 {
-                    100.0 * (plus_di_val - minus_di_val).abs() / (plus_di_val + minus_di_val)
-                } else {
-                    0.0
-                };
-
-                self.plus_di.push(plus_di_val);
-                self.minus_di.push(minus_di_val);
-                self.dx.push(dx);
-                self.dx_sum += dx;
-                self.adx.push(dx);
-                self.initialized = true;
-
-                return Some(dx);
-            }
-            return None;
-        }
-
-        // Wilder smoothing for subsequent values
-        let atr = (self.atr_sum * (self.period as f64 - 1.0) + tr) / self.period as f64;
-        self.atr_sum = atr;
-
-        let plus_di_val = if atr > 0.0 {
-            100.0 * (self.plus_dm_sum * (self.period as f64 - 1.0) + plus_dm)
-                / (atr * self.period as f64)
-        } else {
-            0.0
-        };
-        let minus_di_val = if atr > 0.0 {
-            100.0 * (self.minus_dm_sum * (self.period as f64 - 1.0) + minus_dm)
-                / (atr * self.period as f64)
-        } else {
-            0.0
-        };
-
-        let dx = if plus_di_val + minus_di_val > 0.0 {
-            100.0 * (plus_di_val - minus_di_val).abs() / (plus_di_val + minus_di_val)
-        } else {
-            0.0
-        };
-
-        self.plus_di.push(plus_di_val);
-        self.minus_di.push(minus_di_val);
-        self.dx.push(dx);
-
-        // ADX = smoothed DX
-        let adx_value = if self.adx.len() < self.period {
-            // Initial ADX = average of first `period` DX values
-            self.dx_sum += dx;
-            if self.dx.len() == self.period {
-                self.dx_sum / self.period as f64
-            } else {
-                0.0
-            }
-        } else {
-            // Wilder smoothing: (PrevADX * (period - 1) + CurrentDX) / period
-            let prev_adx = *self.adx.last().unwrap_or(&0.0);
-            (prev_adx * (self.period as f64 - 1.0) + dx) / self.period as f64
-        };
-
-        self.plus_di.push(plus_di_val);
-        self.minus_di.push(minus_di_val);
-        self.dx.push(dx);
-        self.adx.push(adx_value);
-
-        Some(adx_value)
+    fn update(&mut self, bar: &Bar) -> Option<Decimal> {
+        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
     }
 
-    fn value(&self) -> Option<f64> {
-        self.adx.last().copied()
+    fn value(&self) -> Option<Decimal> {
+        self.last_adx
     }
 
     fn reset(&mut self) {
-        self.highs.clear();
-        self.lows.clear();
-        self.closes.clear();
-        self.plus_di.clear();
-        self.minus_di.clear();
-        self.dx.clear();
-        self.adx.clear();
-        self.atr_sum = 0.0;
-        self.plus_dm_sum = 0.0;
-        self.minus_dm_sum = 0.0;
-        self.dx_sum = 0.0;
-        self.initialized = false;
+        self.prev_high = None;
+        self.prev_low = None;
+        self.prev_close = None;
+        self.dm_samples = 0;
+        self.smoothed_tr = Decimal::ZERO;
+        self.smoothed_plus_dm = Decimal::ZERO;
+        self.smoothed_minus_dm = Decimal::ZERO;
+        self.dx_samples = 0;
+        self.dx_sum = Decimal::ZERO;
+        self.last_plus_di = None;
+        self.last_minus_di = None;
+        self.last_dx = None;
+        self.last_adx = None;
     }
 }

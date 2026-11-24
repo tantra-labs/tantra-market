@@ -1,20 +1,21 @@
 //! Behavioural tests for every indicator.
 
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
+use rust_decimal_macros::dec;
 use tantra_core::{Bar, Exchange, InstrumentId, Price, Quantity};
 use tantra_market_indicators::{
     Atr, BollingerBands, BollingerValue, Ema, Indicator, Macd, Rsi, Sma,
 };
 
-fn bar(high: f64, low: f64, close: f64) -> Bar {
+fn bar(high: Decimal, low: Decimal, close: Decimal) -> Bar {
     Bar {
         instrument: InstrumentId::new(Exchange::Nse, "X"),
-        open: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
-        high: Price::new(Decimal::from_f64_retain(high).unwrap_or_default()),
-        low: Price::new(Decimal::from_f64_retain(low).unwrap_or_default()),
-        close: Price::new(Decimal::from_f64_retain(close).unwrap_or_default()),
+        open: Price::new(close),
+        high: Price::new(high),
+        low: Price::new(low),
+        close: Price::new(close),
         volume: Quantity::from_u64(1),
-        timestamp: chrono::Utc::now(),
+        timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid ts"),
     }
 }
 
@@ -23,17 +24,18 @@ fn bar(high: f64, low: f64, close: f64) -> Bar {
 #[test]
 fn sma_returns_none_until_primed() {
     let mut s = Sma::new(3);
-    assert_eq!(s.update(1.0), None);
-    assert_eq!(s.update(2.0), None);
-    assert_eq!(s.update(3.0), Some(2.0));
+    assert_eq!(s.update(dec!(1)), None);
+    assert_eq!(s.update(dec!(2)), None);
+    assert_eq!(s.update(dec!(3)), Some(dec!(2)));
     assert!(s.is_ready());
 }
 
 #[test]
 fn sma_rolling_average() {
     let mut s = Sma::new(3);
-    let inputs = [1.0, 2.0, 3.0, 4.0, 5.0];
-    let expected: Vec<Option<f64>> = vec![None, None, Some(2.0), Some(3.0), Some(4.0)];
+    let inputs = [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)];
+    let expected: Vec<Option<Decimal>> =
+        vec![None, None, Some(dec!(2)), Some(dec!(3)), Some(dec!(4))];
     for (i, x) in inputs.iter().enumerate() {
         assert_eq!(s.update(*x), expected[i], "at index {i}");
     }
@@ -42,13 +44,13 @@ fn sma_rolling_average() {
 #[test]
 fn sma_reset_clears_state() {
     let mut s = Sma::new(3);
-    s.update(1.0);
-    s.update(2.0);
-    s.update(3.0);
+    s.update(dec!(1));
+    s.update(dec!(2));
+    s.update(dec!(3));
     assert!(s.is_ready());
     s.reset();
     assert!(!s.is_ready());
-    assert_eq!(s.update(10.0), None);
+    assert_eq!(s.update(dec!(10)), None);
 }
 
 // --- EMA ---
@@ -56,30 +58,30 @@ fn sma_reset_clears_state() {
 #[test]
 fn ema_seeds_from_sma() {
     let mut e = Ema::new(3);
-    assert_eq!(e.update(1.0), None);
-    assert_eq!(e.update(2.0), None);
-    assert_eq!(e.update(3.0), Some(2.0));
+    assert_eq!(e.update(dec!(1)), None);
+    assert_eq!(e.update(dec!(2)), None);
+    assert_eq!(e.update(dec!(3)), Some(dec!(2)));
 }
 
 #[test]
 fn ema_smooths_after_seed() {
     let mut e = Ema::new(3); // alpha = 0.5
-    for x in [1.0, 2.0, 3.0] {
+    for x in [dec!(1), dec!(2), dec!(3)] {
         e.update(x);
     }
-    assert_eq!(e.update(4.0), Some(3.0));
-    assert_eq!(e.update(5.0), Some(4.0));
+    assert_eq!(e.update(dec!(4)), Some(dec!(3)));
+    assert_eq!(e.update(dec!(5)), Some(dec!(4)));
 }
 
 #[test]
 fn ema_reset_clears_state() {
     let mut e = Ema::new(3);
-    for x in [1.0, 2.0, 3.0] {
+    for x in [dec!(1), dec!(2), dec!(3)] {
         e.update(x);
     }
     e.reset();
     assert!(!e.is_ready());
-    assert_eq!(e.update(1.0), None);
+    assert_eq!(e.update(dec!(1)), None);
 }
 
 // --- RSI ---
@@ -87,21 +89,21 @@ fn ema_reset_clears_state() {
 #[test]
 fn rsi_all_up_is_100() {
     let mut r = Rsi::new(3);
-    for p in [1.0, 2.0, 3.0, 4.0] {
+    for p in [dec!(1), dec!(2), dec!(3), dec!(4)] {
         r.update(p);
     }
     let v = r.value().unwrap();
-    assert!((v - 100.0).abs() < 1e-9, "expected 100, got {v}");
+    assert!((v - dec!(100)).abs() < dec!(1e-9), "expected 100, got {v}");
 }
 
 #[test]
 fn rsi_all_down_is_zero() {
     let mut r = Rsi::new(3);
-    for p in [4.0, 3.0, 2.0, 1.0] {
+    for p in [dec!(4), dec!(3), dec!(2), dec!(1)] {
         r.update(p);
     }
     let v = r.value().unwrap();
-    assert!(v.abs() < 1e-9, "expected 0, got {v}");
+    assert!(v.abs() < dec!(1e-9), "expected 0, got {v}");
 }
 
 #[test]
@@ -109,20 +111,20 @@ fn rsi_flat_is_neutral_when_no_loss() {
     // With all gains = 0 and all losses = 0, avg_loss == 0, so we return 100.
     // This is an edge case; document the behaviour rather than fight it.
     let mut r = Rsi::new(3);
-    for p in [5.0, 5.0, 5.0, 5.0] {
+    for p in [dec!(5), dec!(5), dec!(5), dec!(5)] {
         r.update(p);
     }
     let v = r.value().unwrap();
-    assert!((v - 100.0).abs() < 1e-9);
+    assert!((v - dec!(100)).abs() < dec!(1e-9));
 }
 
 #[test]
 fn rsi_requires_period_plus_one_inputs() {
     let mut r = Rsi::new(3);
-    assert_eq!(r.update(1.0), None); // first price sets baseline
-    assert_eq!(r.update(2.0), None);
-    assert_eq!(r.update(3.0), None);
-    assert_eq!(r.update(4.0), Some(100.0));
+    assert_eq!(r.update(dec!(1)), None); // first price sets baseline
+    assert_eq!(r.update(dec!(2)), None);
+    assert_eq!(r.update(dec!(3)), None);
+    assert_eq!(r.update(dec!(4)), Some(dec!(100)));
 }
 
 // --- ATR ---
@@ -130,56 +132,53 @@ fn rsi_requires_period_plus_one_inputs() {
 #[test]
 fn atr_first_bar_uses_high_low() {
     let mut a = Atr::new(2);
-    assert_eq!(a.update(&bar(10.0, 8.0, 9.0)), None); // tr = 2
+    assert_eq!(a.update(&bar(dec!(10), dec!(8), dec!(9))), None); // tr = 2
     // Second bar: high=11, low=9, prev_close=9 -> tr = max(2, 2, 0) = 2
-    assert_eq!(
-        a.update(&bar(11.0, 9.0, 10.0)),
-        Some(rust_decimal::Decimal::from(2))
-    );
+    assert_eq!(a.update(&bar(dec!(11), dec!(9), dec!(10))), Some(dec!(2)));
 }
 
 #[test]
 fn atr_accounts_for_gaps() {
     let mut a = Atr::new(1);
-    a.update(&bar(10.0, 9.0, 9.5)); // tr = 1
+    a.update(&bar(dec!(10), dec!(9), dec!(9.5))); // tr = 1
     // Gap up: prev_close=9.5, high=20, low=15 -> tr = max(5, 10.5, 5.5) = 10.5
-    let v = a.update(&bar(20.0, 15.0, 19.0)).unwrap();
-    assert_eq!(v, rust_decimal::Decimal::new(105, 1));
+    let v = a.update(&bar(dec!(20), dec!(15), dec!(19))).unwrap();
+    assert_eq!(v, dec!(10.5));
 }
 
 // --- Bollinger ---
 
 #[test]
 fn bollinger_returns_none_until_primed() {
-    let mut bb = BollingerBands::new(3, 2.0);
-    assert_eq!(bb.update(1.0), None);
-    assert_eq!(bb.update(2.0), None);
-    assert!(bb.update(3.0).is_some());
+    let mut bb = BollingerBands::new(3, dec!(2));
+    assert_eq!(bb.update(dec!(1)), None);
+    assert_eq!(bb.update(dec!(2)), None);
+    assert!(bb.update(dec!(3)).is_some());
 }
 
 #[test]
 fn bollinger_constant_series_has_zero_width() {
-    let mut bb = BollingerBands::new(5, 2.0);
+    let mut bb = BollingerBands::new(5, dec!(2));
     for _ in 0..5 {
-        bb.update(10.0);
+        bb.update(dec!(10));
     }
     let v = bb.value().unwrap();
-    assert_eq!(v.middle, 10.0);
-    assert_eq!(v.upper, 10.0);
-    assert_eq!(v.lower, 10.0);
+    assert_eq!(v.middle, dec!(10));
+    assert_eq!(v.upper, dec!(10));
+    assert_eq!(v.lower, dec!(10));
 }
 
 #[test]
 fn bollinger_bands_bracket_middle() {
-    let mut bb = BollingerBands::new(5, 2.0);
-    for x in [1.0, 2.0, 3.0, 4.0, 5.0] {
+    let mut bb = BollingerBands::new(5, dec!(2));
+    for x in [dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)] {
         bb.update(x);
     }
     let v: BollingerValue = bb.value().unwrap();
-    assert_eq!(v.middle, 3.0);
-    let expected_std = 2.0_f64.sqrt();
-    assert!((v.upper - (3.0 + 2.0 * expected_std)).abs() < 1e-9);
-    assert!((v.lower - (3.0 - 2.0 * expected_std)).abs() < 1e-9);
+    assert_eq!(v.middle, dec!(3));
+    let expected_std = dec!(2).sqrt().unwrap();
+    assert!((v.upper - (dec!(3) + dec!(2) * expected_std)).abs() < dec!(1e-9));
+    assert!((v.lower - (dec!(3) - dec!(2) * expected_std)).abs() < dec!(1e-9));
 }
 
 // --- MACD ---
@@ -195,30 +194,30 @@ fn macd_none_until_all_emas_primed() {
     let mut m = Macd::new(2, 4, 2);
     // Slow (4) + signal (2) -> needs at least 5 values before Some.
     for i in 1..=4 {
-        assert_eq!(m.update(i as f64), None, "at step {i}");
+        assert_eq!(m.update(Decimal::from(i)), None, "at step {i}");
     }
-    assert!(m.update(5.0).is_some());
+    assert!(m.update(dec!(5)).is_some());
 }
 
 #[test]
 fn macd_histogram_equals_macd_minus_signal() {
     let mut m = Macd::new(2, 4, 2);
     for x in 1..=20 {
-        m.update(x as f64);
+        m.update(Decimal::from(x));
     }
     let v = m.value().unwrap();
-    assert!((v.histogram - (v.macd - v.signal)).abs() < 1e-12);
-    assert!(v.macd > 0.0);
+    assert!((v.histogram - (v.macd - v.signal)).abs() < dec!(1e-12));
+    assert!(v.macd > Decimal::ZERO);
 }
 
 #[test]
 fn macd_reset_clears_state() {
     let mut m = Macd::new(2, 4, 2);
     for x in 1..=20 {
-        m.update(x as f64);
+        m.update(Decimal::from(x));
     }
     assert!(m.is_ready());
     m.reset();
     assert!(!m.is_ready());
-    assert_eq!(m.update(1.0), None);
+    assert_eq!(m.update(dec!(1)), None);
 }

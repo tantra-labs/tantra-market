@@ -1,7 +1,8 @@
 //! Unit tests for `crate::macd`.
 
 mod common;
-use common::{assert_close, feed};
+use common::{assert_dec_close, feed};
+use rust_decimal_macros::dec;
 use tantra_market_indicators::Macd;
 
 #[test]
@@ -22,7 +23,7 @@ fn reports_its_periods() {
 #[test]
 fn first_value_arrives_after_slow_plus_signal_minus_one_inputs() {
     let mut m = Macd::new(2, 3, 2);
-    let out = feed(&mut m, &[1.0, 2.0, 3.0, 4.0, 5.0]);
+    let out = feed(&mut m, &[dec!(1), dec!(2), dec!(3), dec!(4), dec!(5)]);
     let first = out.iter().position(Option::is_some).unwrap();
     assert_eq!(first, 3 + 2 - 2);
 }
@@ -30,8 +31,12 @@ fn first_value_arrives_after_slow_plus_signal_minus_one_inputs() {
 #[test]
 fn constant_input_converges_to_zero() {
     let mut m = Macd::new(2, 3, 2);
-    let v = feed(&mut m, &[7.0; 6]).last().copied().flatten().unwrap();
-    assert_close(v.macd, 0.0);
-    assert_close(v.signal, 0.0);
-    assert_close(v.histogram, 0.0);
+    let v = feed(&mut m, &[dec!(7); 6])
+        .last()
+        .copied()
+        .flatten()
+        .unwrap();
+    assert_dec_close(v.macd, dec!(0));
+    assert_dec_close(v.signal, dec!(0));
+    assert_dec_close(v.histogram, dec!(0));
 }

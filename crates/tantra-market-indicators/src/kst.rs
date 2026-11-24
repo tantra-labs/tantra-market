@@ -2,15 +2,18 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+
 use crate::indicator::Indicator;
 
-/// One ROC → SMA pipeline (a smoothed rate of change, "RCMA").
+/// One ROC -> SMA pipeline (a smoothed rate of change, "RCMA").
 #[derive(Clone, Debug)]
 struct RocSmaPipeline {
     roc_period: usize,
     sma_period: usize,
-    prices: VecDeque<f64>,
-    rocs: VecDeque<f64>,
+    prices: VecDeque<Decimal>,
+    rocs: VecDeque<Decimal>,
 }
 
 impl RocSmaPipeline {
@@ -25,15 +28,15 @@ impl RocSmaPipeline {
 
     /// Feeds one close and returns the current RCMA once enough history has
     /// accumulated (a zero price `roc_period` bars ago yields no ROC).
-    fn update(&mut self, price: f64) -> Option<f64> {
+    fn update(&mut self, price: Decimal) -> Option<Decimal> {
         self.prices.push_back(price);
         if self.prices.len() > self.roc_period + 1 {
             self.prices.pop_front();
         }
         if self.prices.len() == self.roc_period + 1 {
-            let oldest = self.prices.front().copied().unwrap_or(0.0);
-            if oldest != 0.0 {
-                let roc = (price - oldest) / oldest * 100.0;
+            let oldest = self.prices.front().copied().unwrap_or(Decimal::ZERO);
+            if !oldest.is_zero() {
+                let roc = (price - oldest) / oldest * Decimal::ONE_HUNDRED;
                 self.rocs.push_back(roc);
                 if self.rocs.len() > self.sma_period {
                     self.rocs.pop_front();
@@ -41,7 +44,7 @@ impl RocSmaPipeline {
             }
         }
         if self.rocs.len() == self.sma_period {
-            Some(self.rocs.iter().sum::<f64>() / self.sma_period as f64)
+            Some(self.rocs.iter().copied().sum::<Decimal>() / Decimal::from(self.sma_period))
         } else {
             None
         }
@@ -53,7 +56,7 @@ impl RocSmaPipeline {
     }
 }
 
-/// Know Sure Thing (KST).
+/// Know Sure Thing (KST), computed in `Decimal`.
 ///
 /// `KST = RCMA1 + 2·RCMA2 + 3·RCMA3 + 4·RCMA4` with Pring's standard pipeline:
 ///
@@ -73,7 +76,7 @@ pub struct Kst {
     p2: RocSmaPipeline,
     p3: RocSmaPipeline,
     p4: RocSmaPipeline,
-    last: Option<f64>,
+    last: Option<Decimal>,
 }
 
 impl Default for Kst {
@@ -94,25 +97,34 @@ impl Kst {
             last: None,
         }
     }
+
+    /// `f64` presentation shim over [`Indicator::update`].
+    ///
+    /// For chart presentation surfaces only; financial math must use the `Decimal` input.
+    /// Non-finite inputs return `None` without mutating state.
+    pub fn update_f64(&mut self, price: f64) -> Option<f64> {
+        let p = Decimal::try_from(price).ok()?;
+        self.update(p).and_then(|v| v.to_f64())
+    }
 }
 
 impl Indicator for Kst {
-    type Input<'a> = f64;
-    type Output = f64;
+    type Input<'a> = Decimal;
+    type Output = Decimal;
 
-    fn update(&mut self, price: f64) -> Option<f64> {
+    fn update(&mut self, price: Decimal) -> Option<Decimal> {
         // Every pipeline must see every close regardless of readiness.
         let rcma1 = self.p1.update(price);
         let rcma2 = self.p2.update(price);
         let rcma3 = self.p3.update(price);
         let rcma4 = self.p4.update(price);
         let (r1, r2, r3, r4) = (rcma1?, rcma2?, rcma3?, rcma4?);
-        let v = r1 + 2.0 * r2 + 3.0 * r3 + 4.0 * r4;
+        let v = r1 + Decimal::TWO * r2 + Decimal::from(3) * r3 + Decimal::from(4) * r4;
         self.last = Some(v);
         Some(v)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 

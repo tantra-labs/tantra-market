@@ -1,7 +1,8 @@
 //! Unit tests for `crate::vortex`.
 
 mod common;
-use common::{assert_close, hlc};
+use common::{assert_dec_close, hlc, hlc_dec};
+use rust_decimal_macros::dec;
 use tantra_market_indicators::{Indicator, Vortex};
 
 #[test]
@@ -16,22 +17,26 @@ fn golden_values_for_a_known_sequence() {
     assert_eq!(v.period(), 2);
     assert_eq!(v.update(&hlc(10.0, 8.0, 9.0)), None);
     assert_eq!(v.update(&hlc(11.0, 9.0, 10.0)), None);
-    // bar3: TR 3, plus |12-9|=3, minus |9-11|=2 → VI+ = 6/5 = 1.2, VI− = 3/5.
+    // bar3: TR 3, plus |12-9|=3, minus |9-11|=2 -> VI+ = 6/5 = 1.2, VI- = 3/5.
     let out = v.update(&hlc(12.0, 9.0, 11.0)).unwrap();
-    assert_close(out.vi_plus, 1.2);
-    assert_close(out.vi_minus, 0.6);
-    // bar4: TR 3, plus |11-9|=2, minus |8-12|=4 → VI+ = 5/6, VI− = 1.
+    assert_dec_close(out.vi_plus, dec!(1.2));
+    assert_dec_close(out.vi_minus, dec!(0.6));
+    // bar4: TR 3, plus |11-9|=2, minus |8-12|=4 -> VI+ = 5/6, VI- = 1.
     let out = v.update(&hlc(11.0, 8.0, 10.0)).unwrap();
-    assert_close(out.vi_plus, 5.0 / 6.0);
-    assert_close(out.vi_minus, 1.0);
+    assert_dec_close(out.vi_plus, dec!(5) / dec!(6));
+    assert_dec_close(out.vi_minus, dec!(1));
 }
 
 #[test]
 fn update_hlc_matches_update_with_a_bar() {
     let mut by_bar = Vortex::new(2);
     let mut by_hlc = Vortex::new(2);
-    for (h, l, c) in [(10.0, 8.0, 9.0), (11.0, 9.0, 10.0), (12.0, 9.0, 11.0)] {
-        assert_eq!(by_hlc.update_hlc(h, l, c), by_bar.update(&hlc(h, l, c)));
+    for (h, l, c) in [
+        (dec!(10), dec!(8), dec!(9)),
+        (dec!(11), dec!(9), dec!(10)),
+        (dec!(12), dec!(9), dec!(11)),
+    ] {
+        assert_eq!(by_hlc.update_hlc(h, l, c), by_bar.update(&hlc_dec(h, l, c)));
     }
 }
 

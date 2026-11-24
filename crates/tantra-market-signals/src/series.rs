@@ -78,23 +78,23 @@ impl Series {
         let mut atr_ind = Atr::new(params.rsi_period);
 
         for bar in bars {
-            let c = bar.close.0.to_string().parse::<f64>().unwrap_or(0.0);
-            open.push(bar.open.0.to_string().parse::<f64>().unwrap_or(0.0));
-            high.push(bar.high.0.to_string().parse::<f64>().unwrap_or(0.0));
-            low.push(bar.low.0.to_string().parse::<f64>().unwrap_or(0.0));
-            close.push(c);
-            volume.push(bar.volume.0.to_string().parse::<f64>().unwrap_or(0.0));
+            let c_dec = bar.close.0;
+            let v_dec = bar.volume.0;
+            open.push(bar.open.0.to_f64().unwrap_or(0.0));
+            high.push(bar.high.0.to_f64().unwrap_or(0.0));
+            low.push(bar.low.0.to_f64().unwrap_or(0.0));
+            close.push(c_dec.to_f64().unwrap_or(0.0));
+            volume.push(v_dec.to_f64().unwrap_or(0.0));
             days.push(bar.timestamp.timestamp_millis() / 86_400_000);
-            ema_fast.push(ema_fast_ind.update(c));
-            ema_slow.push(ema_slow_ind.update(c));
-            rsi.push(rsi_ind.update(c));
-            macd.push(macd_ind.update(c));
-            vol_sma.push(vol_sma_ind.update(volume.last().copied().unwrap_or(0.0)));
-            vwap.push(vwap_ind.update(bar));
-            cpr_pivot.push(cpr_ind.update(bar));
-            cpr_bc.push(cpr_ind.bc());
-            cpr_tc.push(cpr_ind.tc());
-            // signal math is f64-legacy: convert at the boundary (tantra-market gap 0009)
+            ema_fast.push(ema_fast_ind.update(c_dec).and_then(|v| v.to_f64()));
+            ema_slow.push(ema_slow_ind.update(c_dec).and_then(|v| v.to_f64()));
+            rsi.push(rsi_ind.update(c_dec).and_then(|v| v.to_f64()));
+            macd.push(macd_ind.update(c_dec));
+            vol_sma.push(vol_sma_ind.update(v_dec).and_then(|v| v.to_f64()));
+            vwap.push(vwap_ind.update(bar).and_then(|v| v.to_f64()));
+            cpr_pivot.push(cpr_ind.update(bar).and_then(|v| v.to_f64()));
+            cpr_bc.push(cpr_ind.bc().and_then(|v| v.to_f64()));
+            cpr_tc.push(cpr_ind.tc().and_then(|v| v.to_f64()));
             atr.push(atr_ind.update(bar).and_then(|v| v.to_f64()));
         }
 

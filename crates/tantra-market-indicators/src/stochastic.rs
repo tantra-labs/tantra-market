@@ -2,26 +2,27 @@
 //!
 //! Raw `%K = 100 * (close - LL) / (HH - LL)` over `period` bars. `HH` is the
 //! highest high and `LL` the lowest low in the window. `HH == LL` yields
-//! `50.0` by convention (neutral). `%D` is the SMA of the last `d_period`
+//! `50` by convention (neutral). `%D` is the SMA of the last `d_period`
 //! `%K` values, `None` until that SMA is primed.
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
 use tantra_core::Bar;
 
 use crate::indicator::Indicator;
 
-/// The value produced by [`Stochastic`].
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The value produced by [`Stochastic`], computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StochasticValue {
     /// Raw `%K`, `0..100` (flat window gives `50`).
-    pub k: f64,
-    /// Smoothed `%D`, an SMA of `%K` over `d_period``.
-    pub d: Option<f64>,
+    pub k: Decimal,
+    /// Smoothed `%D`, an SMA of `%K` over `d_period`.
+    pub d: Option<Decimal>,
 }
 
-/// Stochastic oscillator (%K and %D) over `period` bars and a `d_period` SMA.
-///
+/// Stochastic oscillator (%K and %D) over `period` bars and a `d_period` SMA,
+/// computed in `Decimal`.
 ///
 /// Monotonic deques give O(1) amortised updates; the keepers of `k` values
 /// and their running sum give O(1) for `d`.
@@ -31,37 +32,38 @@ pub struct StochasticValue {
 /// use tantra_market_indicators::{Indicator, Stochastic};
 /// use rust_decimal::Decimal;
 ///
-/// fn bar(h: f64, l: f64, c: f64) -> Bar {
+/// fn bar(h: i64, l: i64, c: i64) -> Bar {
 ///     Bar {
 ///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from_f64_retain(c).unwrap()),
-///         high: Price::new(Decimal::from_f64_retain(h).unwrap()),
-///         low: Price::new(Decimal::from_f64_retain(l).unwrap()),
-///         close: Price::new(Decimal::from_f64_retain(c).unwrap()),
+///         open: Price::new(Decimal::from(c)),
+///         high: Price::new(Decimal::from(h)),
+///         low: Price::new(Decimal::from(l)),
+///         close: Price::new(Decimal::from(c)),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
 /// }
 /// let mut s = Stochastic::new(3, 2);
-/// s.update(&bar(10.0, 5.0, 7.0));
-/// s.update(&bar(11.0, 6.0, 9.0));
-/// let v = s.update(&bar(9.0, 4.0, 6.0)).unwrap();
-/// // HH=11, LL=4, close=6 -> k = 100*(2/7) ~ 28.571
-/// assert!((v.k - 28.571428).abs() < 1e-4);
+/// s.update(&bar(10, 5, 7));
+/// s.update(&bar(11, 6, 9));
+/// let v = s.update(&bar(9, 4, 6)).unwrap();
+/// // HH=11, LL=4, close=6 -> k = 100*(2/7) ~ 28.571428...
+/// assert!((v.k - Decimal::from(200) / Decimal::from(7)).abs() < Decimal::new(1, 9));
 /// assert!(v.d.is_none());
-/// let v2 = s.update(&bar(12.0, 7.0, 10.0)).unwrap();
-/// // Next k 75, so d = (28.571+75)/2
-/// assert!((v2.d.unwrap() - 51.7857).abs() < 1e-3);
+/// let v2 = s.update(&bar(12, 7, 10)).unwrap();
+/// // Next k = 75, so d = (200/7 + 75) / 2
+/// let expected_d = (Decimal::from(200) / Decimal::from(7) + Decimal::from(75)) / Decimal::TWO;
+/// assert!((v2.d.unwrap() - expected_d).abs() < Decimal::new(1, 9));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Stochastic {
     period: usize,
     d_period: usize,
     index: usize,
-    highs: VecDeque<(usize, f64)>,
-    lows: VecDeque<(usize, f64)>,
-    ks: VecDeque<f64>,
-    k_sum: f64,
+    highs: VecDeque<(usize, Decimal)>,
+    lows: VecDeque<(usize, Decimal)>,
+    ks: VecDeque<Decimal>,
+    k_sum: Decimal,
     last: Option<StochasticValue>,
 }
 
@@ -81,7 +83,7 @@ impl Stochastic {
             highs: VecDeque::new(),
             lows: VecDeque::new(),
             ks: VecDeque::new(),
-            k_sum: 0.0,
+            k_sum: Decimal::ZERO,
             last: None,
         }
     }
@@ -96,7 +98,7 @@ impl Stochastic {
         self.d_period
     }
 
-    fn push(&mut self, high: f64, low: f64, close: f64) -> Option<StochasticValue> {
+    fn push(&mut self, high: Decimal, low: Decimal, close: Decimal) -> Option<StochasticValue> {
         let idx = self.index;
         self.index += 1;
 
@@ -125,10 +127,10 @@ impl Stochastic {
         let hh = self.highs.front().unwrap().1;
         let ll = self.lows.front().unwrap().1;
         let denom = hh - ll;
-        let k = if denom.abs() < f64::EPSILON {
-            50.0
+        let k = if denom.is_zero() {
+            Decimal::from(50)
         } else {
-            100.0 * (close - ll) / denom
+            Decimal::from(100) * (close - ll) / denom
         };
 
         self.ks.push_back(k);
@@ -140,7 +142,7 @@ impl Stochastic {
         }
 
         let d = if self.ks.len() == self.d_period {
-            Some(self.k_sum / self.d_period as f64)
+            Some(self.k_sum / Decimal::from(self.d_period))
         } else {
             None
         };
@@ -150,8 +152,13 @@ impl Stochastic {
         Some(v)
     }
 
-    /// Feeds raw `high`/`low`/`close` without building a `Bar`.
-    pub fn update_hlc(&mut self, high: f64, low: f64, close: f64) -> Option<StochasticValue> {
+    /// Feeds raw `Decimal` `high`/`low`/`close` without building a `Bar`.
+    pub fn update_hlc(
+        &mut self,
+        high: Decimal,
+        low: Decimal,
+        close: Decimal,
+    ) -> Option<StochasticValue> {
         self.push(high, low, close)
     }
 }
@@ -161,11 +168,7 @@ impl Indicator for Stochastic {
     type Output = StochasticValue;
 
     fn update(&mut self, bar: &Bar) -> Option<StochasticValue> {
-        self.push(
-            bar.high.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.low.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.close.0.to_string().parse::<f64>().unwrap_or(0.0),
-        )
+        self.push(bar.high.0, bar.low.0, bar.close.0)
     }
 
     fn value(&self) -> Option<StochasticValue> {
@@ -177,7 +180,7 @@ impl Indicator for Stochastic {
         self.highs.clear();
         self.lows.clear();
         self.ks.clear();
-        self.k_sum = 0.0;
+        self.k_sum = Decimal::ZERO;
         self.last = None;
     }
 }

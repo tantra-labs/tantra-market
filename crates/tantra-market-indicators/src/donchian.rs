@@ -2,22 +2,23 @@
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
 use tantra_core::Bar;
 
 use crate::indicator::Indicator;
 
-/// Output of the Donchian Channel indicator.
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// Output of the Donchian Channel indicator, computed in `Decimal`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DonchianValue {
     /// Highest high over the window.
-    pub upper: f64,
+    pub upper: Decimal,
     /// Lowest low over the window.
-    pub lower: f64,
+    pub lower: Decimal,
     /// Midpoint `(upper + lower) / 2`.
-    pub middle: f64,
+    pub middle: Decimal,
 }
 
-/// Donchian Channel over `period` bars.
+/// Donchian Channel over `period` bars, computed in `Decimal`.
 ///
 /// Each update is O(1) amortised via monotonic deques for the rolling
 /// maximum of highs and minimum of lows.
@@ -27,30 +28,30 @@ pub struct DonchianValue {
 /// use tantra_market_indicators::{Donchian, Indicator};
 /// use rust_decimal::Decimal;
 ///
-/// fn bar(h: f64, l: f64) -> Bar {
+/// fn bar(h: i64, l: i64) -> Bar {
 ///     Bar {
 ///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from_f64_retain(l).unwrap()),
-///         high: Price::new(Decimal::from_f64_retain(h).unwrap()),
-///         low: Price::new(Decimal::from_f64_retain(l).unwrap()),
-///         close: Price::new(Decimal::from_f64_retain(l).unwrap()),
+///         open: Price::new(Decimal::from(l)),
+///         high: Price::new(Decimal::from(h)),
+///         low: Price::new(Decimal::from(l)),
+///         close: Price::new(Decimal::from(l)),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
 /// }
 /// let mut d = Donchian::new(3);
-/// assert_eq!(d.update(&bar(10.0, 8.0)), None);
-/// assert_eq!(d.update(&bar(11.0, 9.0)), None);
-/// let v = d.update(&bar(9.0, 7.0)).unwrap();
-/// assert_eq!(v.upper, 11.0);
-/// assert_eq!(v.lower, 7.0);
+/// assert_eq!(d.update(&bar(10, 8)), None);
+/// assert_eq!(d.update(&bar(11, 9)), None);
+/// let v = d.update(&bar(9, 7)).unwrap();
+/// assert_eq!(v.upper, Decimal::from(11));
+/// assert_eq!(v.lower, Decimal::from(7));
 /// ```
 #[derive(Clone, Debug)]
 pub struct Donchian {
     period: usize,
     index: usize,
-    highs: VecDeque<(usize, f64)>,
-    lows: VecDeque<(usize, f64)>,
+    highs: VecDeque<(usize, Decimal)>,
+    lows: VecDeque<(usize, Decimal)>,
     last: Option<DonchianValue>,
 }
 
@@ -76,7 +77,7 @@ impl Donchian {
         self.period
     }
 
-    fn push(&mut self, high: f64, low: f64) -> Option<DonchianValue> {
+    fn push(&mut self, high: Decimal, low: Decimal) -> Option<DonchianValue> {
         let idx = self.index;
         self.index += 1;
 
@@ -104,7 +105,7 @@ impl Donchian {
             let v = DonchianValue {
                 upper,
                 lower,
-                middle: (upper + lower) * 0.5,
+                middle: (upper + lower) / Decimal::TWO,
             };
             self.last = Some(v);
             Some(v)
@@ -113,8 +114,8 @@ impl Donchian {
         }
     }
 
-    /// Feeds raw `high`/`low` without building a `Bar`.
-    pub fn update_hl(&mut self, high: f64, low: f64) -> Option<DonchianValue> {
+    /// Feeds raw `Decimal` `high`/`low` without building a `Bar`.
+    pub fn update_hl(&mut self, high: Decimal, low: Decimal) -> Option<DonchianValue> {
         self.push(high, low)
     }
 }
@@ -124,10 +125,7 @@ impl Indicator for Donchian {
     type Output = DonchianValue;
 
     fn update(&mut self, bar: &Bar) -> Option<DonchianValue> {
-        self.push(
-            bar.high.0.to_string().parse::<f64>().unwrap_or(0.0),
-            bar.low.0.to_string().parse::<f64>().unwrap_or(0.0),
-        )
+        self.push(bar.high.0, bar.low.0)
     }
 
     fn value(&self) -> Option<DonchianValue> {

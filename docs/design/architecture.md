@@ -71,12 +71,12 @@ tantra-market-normalizer             tantra-market-{zerodha,upstox,fyers,angelon
 
 ## 4. Domain Purity & Determinism
 
-* **Zero floats in financial paths**: prices and quantities are
-  `tantra_core` `Price`/`Quantity` (exact `rust_decimal`). The documented
-  exceptions — indicator inputs (`indicators/src/lib.rs::bar_f64`),
-  Black-Scholes internals (`pricing`, f64 isolated behind the `Decimal`
-  boundary), and the legacy `store::wire` types — never cross a public
-  financial API as floats.
+* **Zero floats in financial paths**: prices, quantities, and streaming
+  indicator internals (`tantra-market-indicators`) use `tantra_core`
+  `Price`/`Quantity` and exact `rust_decimal::Decimal`. The documented
+  exceptions — Black-Scholes internals (`pricing`, f64 isolated behind the
+  `Decimal` boundary) and the legacy `store::wire` types — never cross a
+  public financial API as floats.
 * **Causal, clock-free signals**: `tantra-market-signals::engine::compute`
   reads only bars `<= N` for the signal at bar `N`; no clock, no I/O, no
   lookahead.

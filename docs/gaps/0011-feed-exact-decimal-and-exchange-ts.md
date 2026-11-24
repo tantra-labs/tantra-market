@@ -26,6 +26,6 @@ Non-tick-aligned prices flow into risk price bands/collars and recorded history:
 
 ## Related
 
-- [0009](0009-f64-indicator-internals.md) covers indicators only, not feed decode.
+- Gap 0009 (closed 2026-11-24; see [`README.md`](README.md#closed-gaps)) covered indicators, not feed decode.
 - [0012](0012-coalescer-tick-loss.md) (monotonicity guard keyed on receive time).
 - Lakehouse partition date depends on a correct `exchange_ts`; see [0014](0014-lakehouse-writer-ref-cas.md).

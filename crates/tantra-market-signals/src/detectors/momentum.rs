@@ -1,5 +1,8 @@
 //! Momentum detectors.
 
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+
 use crate::detector::{Detector, Firing};
 use crate::series::Series;
 
@@ -63,19 +66,27 @@ impl Detector for MacdCross {
             };
             let prev = prev.macd - prev.signal;
             let now = now.macd - now.signal;
-            if prev <= 0.0 && now > 0.0 {
+            let prev_f = prev.to_f64().unwrap_or(0.0);
+            let now_f = now.to_f64().unwrap_or(0.0);
+            if prev <= Decimal::ZERO && now > Decimal::ZERO {
                 out.push(Firing {
                     code: "macd_cross_up",
                     bar: i,
-                    detail: format!("MACD histogram turned positive ({:.3} -> {:.3})", prev, now),
-                    evidence: vec![("macd_histogram", now)],
+                    detail: format!(
+                        "MACD histogram turned positive ({:.3} -> {:.3})",
+                        prev_f, now_f
+                    ),
+                    evidence: vec![("macd_histogram", now_f)],
                 });
-            } else if prev >= 0.0 && now < 0.0 {
+            } else if prev >= Decimal::ZERO && now < Decimal::ZERO {
                 out.push(Firing {
                     code: "macd_cross_down",
                     bar: i,
-                    detail: format!("MACD histogram turned negative ({:.3} -> {:.3})", prev, now),
-                    evidence: vec![("macd_histogram", now)],
+                    detail: format!(
+                        "MACD histogram turned negative ({:.3} -> {:.3})",
+                        prev_f, now_f
+                    ),
+                    evidence: vec![("macd_histogram", now_f)],
                 });
             }
         }

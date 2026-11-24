@@ -1,8 +1,10 @@
 //! Parabolic SAR (Welles Wilder).
 
+use rust_decimal::Decimal;
+
 use crate::indicator::Indicator;
 
-/// Parabolic SAR.
+/// Parabolic SAR, computed in `Decimal`.
 ///
 /// Starts in an uptrend on the second bar with `SAR = first low`,
 /// `EP = highest high so far` and an acceleration factor (`AF`) of 0.02. Each
@@ -11,20 +13,20 @@ use crate::indicator::Indicator;
 /// 0.02 to `AF` up to 0.20. The trend flips when price crosses SAR.
 #[derive(Clone, Debug)]
 pub struct ParabolicSar {
-    af_step: f64,
-    af_max: f64,
-    sar: Option<f64>,
-    af: f64,
-    ep: f64,
+    af_step: Decimal,
+    af_max: Decimal,
+    sar: Option<Decimal>,
+    af: Decimal,
+    ep: Decimal,
     is_up: bool,
-    prev_high: Option<f64>,
-    prev_low: Option<f64>,
-    last: Option<f64>,
+    prev_high: Option<Decimal>,
+    prev_low: Option<Decimal>,
+    last: Option<Decimal>,
 }
 
 impl Default for ParabolicSar {
     fn default() -> Self {
-        Self::new(0.02, 0.20)
+        Self::new(Decimal::new(2, 2), Decimal::new(20, 2))
     }
 }
 
@@ -34,15 +36,18 @@ impl ParabolicSar {
     /// # Panics
     ///
     /// Panics if `af_step` is non-positive or `af_max < af_step`.
-    pub fn new(af_step: f64, af_max: f64) -> Self {
-        assert!(af_step > 0.0, "SAR acceleration step must be positive");
+    pub fn new(af_step: Decimal, af_max: Decimal) -> Self {
+        assert!(
+            af_step > Decimal::ZERO,
+            "SAR acceleration step must be positive"
+        );
         assert!(af_max >= af_step, "SAR acceleration cap must be >= step");
         Self {
             af_step,
             af_max,
             sar: None,
             af: af_step,
-            ep: 0.0,
+            ep: Decimal::ZERO,
             is_up: true,
             prev_high: None,
             prev_low: None,
@@ -50,9 +55,9 @@ impl ParabolicSar {
         }
     }
 
-    /// Feeds one bar as raw `high`/`low` and returns the SAR from the second
+    /// Feeds one bar as raw `Decimal` `high`/`low` and returns the SAR from the second
     /// bar onwards.
-    pub fn update_hl(&mut self, high: f64, low: f64) -> Option<f64> {
+    pub fn update_hl(&mut self, high: Decimal, low: Decimal) -> Option<Decimal> {
         match (self.prev_high, self.prev_low) {
             // First bar: nothing to hang a SAR on yet.
             (None, None) => {
@@ -118,22 +123,20 @@ impl ParabolicSar {
 
 impl Indicator for ParabolicSar {
     type Input<'a> = &'a tantra_core::Bar;
-    type Output = f64;
+    type Output = Decimal;
 
-    fn update(&mut self, bar: &tantra_core::Bar) -> Option<f64> {
-        let high = crate::bar_f64(&bar.high);
-        let low = crate::bar_f64(&bar.low);
-        self.update_hl(high, low)
+    fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
+        self.update_hl(bar.high.0, bar.low.0)
     }
 
-    fn value(&self) -> Option<f64> {
+    fn value(&self) -> Option<Decimal> {
         self.last
     }
 
     fn reset(&mut self) {
         self.sar = None;
         self.af = self.af_step;
-        self.ep = 0.0;
+        self.ep = Decimal::ZERO;
         self.is_up = true;
         self.prev_high = None;
         self.prev_low = None;
