@@ -36,15 +36,15 @@ impl AsRef<Path> for TempDir {
 }
 
 fn instrument(symbol: &str) -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, symbol)
+    InstrumentId::try_new(Exchange::Nse, symbol).unwrap()
 }
 
 fn price(value: &str) -> Price {
-    Price::new(value.parse().unwrap())
+    Price::try_new(value.parse().unwrap()).unwrap()
 }
 
 fn qty(value: &str) -> Quantity {
-    Quantity::new(value.parse().unwrap())
+    Quantity::try_new(value.parse().unwrap()).unwrap()
 }
 
 fn level(price_raw: &str, qty_raw: &str) -> (Price, Quantity) {

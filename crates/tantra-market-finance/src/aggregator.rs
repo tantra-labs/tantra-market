@@ -128,7 +128,8 @@ impl BarAccumulator {
             self.low = bar.low;
         }
         self.close = bar.close;
-        self.volume = Quantity(self.volume.0 + bar.volume.0);
+        self.volume =
+            Quantity::try_new(self.volume.value() + bar.volume.value()).unwrap_or(self.volume);
     }
 
     fn to_bar(&self, instrument: &InstrumentId, _spec: BarSpecification) -> Bar {

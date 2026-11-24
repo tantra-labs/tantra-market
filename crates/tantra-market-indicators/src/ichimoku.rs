@@ -90,9 +90,9 @@ impl Indicator for Ichimoku {
     type Output = IchimokuValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<IchimokuValue> {
-        let high = bar.high.0;
-        let low = bar.low.0;
-        let close = bar.close.0;
+        let high = bar.high.value();
+        let low = bar.low.value();
+        let close = bar.close.value();
         self.highs.push_back(high);
         self.lows.push_back(low);
         if self.highs.len() > self.senkou_b_period {

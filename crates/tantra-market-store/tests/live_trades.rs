@@ -9,7 +9,7 @@ use tantra_market_store::wire::{AggressorSide, TradeId, TradeTick, UnixNanos};
 use tantra_market_store::{Dataset, DatasetReader, LiveQuoteStore};
 
 fn instrument(symbol: &str) -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, symbol)
+    InstrumentId::try_new(Exchange::Nse, symbol).unwrap()
 }
 
 fn utc_ts(date: (i32, u32, u32), hms: (u32, u32, u32)) -> UnixNanos {

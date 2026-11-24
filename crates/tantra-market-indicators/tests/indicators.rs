@@ -9,11 +9,11 @@ use tantra_market_indicators::{
 
 fn bar(high: Decimal, low: Decimal, close: Decimal) -> Bar {
     Bar {
-        instrument: InstrumentId::new(Exchange::Nse, "X"),
-        open: Price::new(close),
-        high: Price::new(high),
-        low: Price::new(low),
-        close: Price::new(close),
+        instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+        open: Price::try_new(close).unwrap(),
+        high: Price::try_new(high).unwrap(),
+        low: Price::try_new(low).unwrap(),
+        close: Price::try_new(close).unwrap(),
         volume: Quantity::from_u64(1),
         timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid ts"),
     }

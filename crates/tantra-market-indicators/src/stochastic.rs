@@ -34,11 +34,11 @@ pub struct StochasticValue {
 ///
 /// fn bar(h: i64, l: i64, c: i64) -> Bar {
 ///     Bar {
-///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from(c)),
-///         high: Price::new(Decimal::from(h)),
-///         low: Price::new(Decimal::from(l)),
-///         close: Price::new(Decimal::from(c)),
+///         instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+///         open: Price::try_new(Decimal::from(c)).unwrap(),
+///         high: Price::try_new(Decimal::from(h)).unwrap(),
+///         low: Price::try_new(Decimal::from(l)).unwrap(),
+///         close: Price::try_new(Decimal::from(c)).unwrap(),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
@@ -168,7 +168,7 @@ impl Indicator for Stochastic {
     type Output = StochasticValue;
 
     fn update(&mut self, bar: &Bar) -> Option<StochasticValue> {
-        self.push(bar.high.0, bar.low.0, bar.close.0)
+        self.push(bar.high.value(), bar.low.value(), bar.close.value())
     }
 
     fn value(&self) -> Option<StochasticValue> {

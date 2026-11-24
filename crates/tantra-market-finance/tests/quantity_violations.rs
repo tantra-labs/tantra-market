@@ -6,12 +6,12 @@ use tantra_market_finance::profile::MarketProfile;
 use tantra_market_finance::{InstrumentRules, MarketError, QuantityViolation};
 
 fn instrument_id() -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, "TEST")
+    InstrumentId::try_new(Exchange::Nse, "TEST").unwrap()
 }
 
 #[test]
 fn provider_rules_report_typed_lot_violation() {
-    let rules = InstrumentRules::new(Quantity::from_u64(25), Price::new(dec!(0.05)));
+    let rules = InstrumentRules::new(Quantity::from_u64(25), Price::try_new(dec!(0.05)).unwrap());
     assert_eq!(rules.validate_quantity(Quantity::from_u64(50)), Ok(()));
     let err = rules.validate_quantity(Quantity::from_u64(30)).unwrap_err();
     assert_eq!(
@@ -29,7 +29,7 @@ fn provider_rules_report_typed_lot_violation() {
 
 #[test]
 fn provider_rules_report_typed_below_min() {
-    let rules = InstrumentRules::new(Quantity::from_u64(25), Price::new(dec!(0.05)));
+    let rules = InstrumentRules::new(Quantity::from_u64(25), Price::try_new(dec!(0.05)).unwrap());
     assert_eq!(
         rules.validate_quantity(Quantity::from_u64(10)),
         Err(QuantityViolation::BelowMin {
@@ -47,16 +47,16 @@ fn india_profile_reports_typed_violations() {
     let rules = profile.instrument_rules().rules_for(&instrument_id());
     assert_eq!(rules.validate_quantity(Quantity::from_u64(7)), Ok(()));
     assert_eq!(
-        rules.validate_quantity(Quantity::new(dec!(0.5))),
+        rules.validate_quantity(Quantity::try_new(dec!(0.5)).unwrap()),
         Err(QuantityViolation::BelowMin {
-            quantity: Quantity::new(dec!(0.5)),
+            quantity: Quantity::try_new(dec!(0.5)).unwrap(),
             min: Quantity::from_u64(1),
         })
     );
     assert_eq!(
-        rules.validate_quantity(Quantity::new(dec!(1.5))),
+        rules.validate_quantity(Quantity::try_new(dec!(1.5)).unwrap()),
         Err(QuantityViolation::NotLotMultiple {
-            quantity: Quantity::new(dec!(1.5)),
+            quantity: Quantity::try_new(dec!(1.5)).unwrap(),
             lot: Quantity::from_u64(1),
         })
     );

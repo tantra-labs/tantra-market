@@ -24,11 +24,11 @@ fn make_bar(o: u32, h: u32, l: u32, c: u32, day: u32, minute: u32) -> Bar {
         .unwrap()
         + chrono::Duration::minutes(minute as i64);
     Bar {
-        instrument: InstrumentId::new(Exchange::Nse, "X"),
-        open: Price::new(Decimal::from(o)),
-        high: Price::new(Decimal::from(h)),
-        low: Price::new(Decimal::from(l)),
-        close: Price::new(Decimal::from(c)),
+        instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+        open: Price::try_new(Decimal::from(o)).unwrap(),
+        high: Price::try_new(Decimal::from(h)).unwrap(),
+        low: Price::try_new(Decimal::from(l)).unwrap(),
+        close: Price::try_new(Decimal::from(c)).unwrap(),
         volume: Quantity::from_u64(1),
         timestamp,
     }

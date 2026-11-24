@@ -32,14 +32,14 @@ fn bar_at(
     close: f64,
     vol: f64,
 ) -> Bar {
-    let instrument = InstrumentId::new(Exchange::Nse, symbol);
+    let instrument = InstrumentId::try_new(Exchange::Nse, symbol).unwrap();
     Bar {
         instrument,
-        open: Price::new(Decimal::from_f64(open).unwrap()),
-        high: Price::new(Decimal::from_f64(high).unwrap()),
-        low: Price::new(Decimal::from_f64(low).unwrap()),
-        close: Price::new(Decimal::from_f64(close).unwrap()),
-        volume: Quantity::new(Decimal::from_f64(vol).unwrap()),
+        open: Price::try_new(Decimal::from_f64(open).unwrap()).unwrap(),
+        high: Price::try_new(Decimal::from_f64(high).unwrap()).unwrap(),
+        low: Price::try_new(Decimal::from_f64(low).unwrap()).unwrap(),
+        close: Price::try_new(Decimal::from_f64(close).unwrap()).unwrap(),
+        volume: Quantity::try_new(Decimal::from_f64(vol).unwrap()).unwrap(),
         timestamp: dt.and_utc(),
     }
 }
@@ -78,11 +78,11 @@ fn htf_bar_only_when_complete() {
         "HTF bar should be emitted on session complete"
     );
     let htf = htf_bar.unwrap();
-    assert_eq!(htf.open, Price::new(Decimal::from(100)));
-    assert_eq!(htf.high, Price::new(Decimal::from(110)));
-    assert_eq!(htf.low, Price::new(Decimal::from(99)));
-    assert_eq!(htf.close, Price::new(Decimal::from(107)));
-    assert_eq!(htf.volume, Quantity::new(Decimal::from(4500)));
+    assert_eq!(htf.open, Price::try_new(Decimal::from(100)).unwrap());
+    assert_eq!(htf.high, Price::try_new(Decimal::from(110)).unwrap());
+    assert_eq!(htf.low, Price::try_new(Decimal::from(99)).unwrap());
+    assert_eq!(htf.close, Price::try_new(Decimal::from(107)).unwrap());
+    assert_eq!(htf.volume, Quantity::try_new(Decimal::from(4500)).unwrap());
 
     // Close timestamp of HTF bar must be the session close (15:30:00)
     let expected_close_dt =
@@ -109,6 +109,6 @@ fn htf_bar_emitted_on_next_session_arrival() {
     let completed = aggregator.process(&bar2);
     assert!(completed.is_some());
     let htf = completed.unwrap();
-    assert_eq!(htf.open, Price::new(Decimal::from(200)));
-    assert_eq!(htf.close, Price::new(Decimal::from(202)));
+    assert_eq!(htf.open, Price::try_new(Decimal::from(200)).unwrap());
+    assert_eq!(htf.close, Price::try_new(Decimal::from(202)).unwrap());
 }

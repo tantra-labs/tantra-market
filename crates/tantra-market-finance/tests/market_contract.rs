@@ -41,12 +41,16 @@ fn verify_market_profile_contract(profile: &dyn MarketProfile) {
     assert!(buy_breakdown.total() >= 0.0);
 
     // 4. Instrument Rules contracts
-    let inst_id = InstrumentId::new(Exchange::Nse, "TEST");
+    let inst_id = InstrumentId::try_new(Exchange::Nse, "TEST").unwrap();
     let rules = profile.instrument_rules().rules_for(&inst_id);
     assert!(rules.lot_size.is_positive());
     assert!(rules.tick_size.is_positive());
     assert!(rules.validate_quantity(Quantity::from_u64(1)).is_ok());
-    assert!(rules.validate_price(Price::new(dec!(100.05))).is_ok());
+    assert!(
+        rules
+            .validate_price(Price::try_new(dec!(100.05)).unwrap())
+            .is_ok()
+    );
 
     // 5. Symbol Grammar contracts
     let grammar = profile.symbol_grammar();

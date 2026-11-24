@@ -192,8 +192,11 @@ fn parse(csv: &mut impl BufRead, exchange: &Exchange) -> Result<Vec<MarketEvent>
             continue;
         };
 
+        let Ok(instrument_id) = InstrumentId::try_new(*exchange, symbol) else {
+            continue;
+        };
         let bar_type = BarType::new(
-            InstrumentId::new(*exchange, symbol),
+            instrument_id,
             BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
         );
         let high = hi.max(op).max(cl);

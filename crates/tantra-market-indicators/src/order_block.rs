@@ -140,10 +140,10 @@ impl Indicator for OrderBlock {
     type Output = OrderBlockValue;
 
     fn update(&mut self, bar: &Bar) -> Option<OrderBlockValue> {
-        let open = bar.open.0;
-        let high = bar.high.0;
-        let low = bar.low.0;
-        let close = bar.close.0;
+        let open = bar.open.value();
+        let high = bar.high.value();
+        let low = bar.low.value();
+        let close = bar.close.value();
 
         // Advance the Decimal ATR with the current bar, then evaluate.
         let tr = Self::true_range(high, low, self.prev_close);

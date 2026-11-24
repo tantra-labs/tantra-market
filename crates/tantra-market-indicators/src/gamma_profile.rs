@@ -72,7 +72,7 @@ impl GammaProfile {
             .strikes
             .iter()
             .map(|s| StrikeGamma {
-                strike: Price::new(s.strike),
+                strike: Price::try_new(s.strike).unwrap_or(Price::ZERO),
                 gamma: s.gamma,
                 oi: s.oi,
                 gex: s.gamma * s.oi * input.lot_size * input.spot,
@@ -95,7 +95,7 @@ impl Indicator for GammaProfile {
             .strikes
             .iter()
             .map(|s| StrikeGamma {
-                strike: Price::new(s.strike),
+                strike: Price::try_new(s.strike).unwrap_or(Price::ZERO),
                 gamma: s.gamma,
                 oi: s.oi,
                 gex: s.gamma * s.oi * input.lot_size * input.spot,

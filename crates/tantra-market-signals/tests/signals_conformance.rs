@@ -45,18 +45,19 @@ fn bars(series: &Value, step_seconds: u64) -> Vec<Bar> {
         .map(floats)
         .unwrap_or_else(|| (0..close.len()).map(|i| open[i].min(close[i])).collect());
 
-    let id = InstrumentId::new(Exchange::Nse, "X");
+    let id = InstrumentId::try_new(Exchange::Nse, "X").unwrap();
     (0..close.len())
         .map(|i| {
             let nanos = (i as i64 + 1) * step_seconds as i64 * 1_000_000_000;
             let ts = chrono::DateTime::from_timestamp_nanos(nanos);
             Bar {
                 instrument: id.clone(),
-                open: Price::new(Decimal::from_f64(open[i]).unwrap_or_default()),
-                high: Price::new(Decimal::from_f64(high[i]).unwrap_or_default()),
-                low: Price::new(Decimal::from_f64(low[i]).unwrap_or_default()),
-                close: Price::new(Decimal::from_f64(close[i]).unwrap_or_default()),
-                volume: Quantity::new(Decimal::from_f64(volume[i]).unwrap_or_default()),
+                open: Price::try_new(Decimal::from_f64(open[i]).unwrap_or_default()).unwrap(),
+                high: Price::try_new(Decimal::from_f64(high[i]).unwrap_or_default()).unwrap(),
+                low: Price::try_new(Decimal::from_f64(low[i]).unwrap_or_default()).unwrap(),
+                close: Price::try_new(Decimal::from_f64(close[i]).unwrap_or_default()).unwrap(),
+                volume: Quantity::try_new(Decimal::from_f64(volume[i]).unwrap_or_default())
+                    .unwrap(),
                 timestamp: ts,
             }
         })
@@ -142,7 +143,7 @@ fn dump(signals: &[Signal]) -> String {
 
 fn run_file(text: &str, horizon: catalog::SignalHorizon) {
     let document: Value = serde_json::from_str(text).expect("vector parses");
-    let instrument = InstrumentId::new(Exchange::Nse, "X");
+    let instrument = InstrumentId::try_new(Exchange::Nse, "X").unwrap();
     let cases = document["cases"].as_array().expect("cases array");
     assert!(!cases.is_empty());
 
@@ -228,7 +229,7 @@ fn signals_swing_matches_the_vector() {
 #[ignore = "regenerates schema/conformance/signals_*.json"]
 fn regenerate_vectors() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema/conformance");
-    let instrument = InstrumentId::new(Exchange::Nse, "X");
+    let instrument = InstrumentId::try_new(Exchange::Nse, "X").unwrap();
     for (file, horizon) in [
         ("signals_day.json", catalog::SignalHorizon::Intraday),
         ("signals_swing.json", catalog::SignalHorizon::Swing),

@@ -244,26 +244,34 @@ fn compute_trade_setup(
 
     match direction {
         SignalDirection::Buy => {
-            let stop = Price(entry_decimal - stop_distance_decimal);
+            let stop = Price::try_new((entry_decimal - stop_distance_decimal).max(Decimal::ZERO))
+                .unwrap_or(Price::ZERO);
             let targets = vec![
-                Price(entry_decimal + stop_distance_decimal),
-                Price(
-                    entry_decimal
+                Price::try_new((entry_decimal + stop_distance_decimal).max(Decimal::ZERO))
+                    .unwrap_or(Price::ZERO),
+                Price::try_new(
+                    (entry_decimal
                         + stop_distance_decimal
-                            * Decimal::from_str_exact("2.0").unwrap_or(Decimal::ZERO),
-                ),
+                            * Decimal::from_str_exact("2.0").unwrap_or(Decimal::ZERO))
+                    .max(Decimal::ZERO),
+                )
+                .unwrap_or(Price::ZERO),
             ];
             (Some(stop), targets)
         }
         SignalDirection::Sell => {
-            let stop = Price(entry_decimal + stop_distance_decimal);
+            let stop = Price::try_new((entry_decimal + stop_distance_decimal).max(Decimal::ZERO))
+                .unwrap_or(Price::ZERO);
             let targets = vec![
-                Price(entry_decimal - stop_distance_decimal),
-                Price(
-                    entry_decimal
+                Price::try_new((entry_decimal - stop_distance_decimal).max(Decimal::ZERO))
+                    .unwrap_or(Price::ZERO),
+                Price::try_new(
+                    (entry_decimal
                         - stop_distance_decimal
-                            * Decimal::from_str_exact("2.0").unwrap_or(Decimal::ZERO),
-                ),
+                            * Decimal::from_str_exact("2.0").unwrap_or(Decimal::ZERO))
+                    .max(Decimal::ZERO),
+                )
+                .unwrap_or(Price::ZERO),
             ];
             (Some(stop), targets)
         }

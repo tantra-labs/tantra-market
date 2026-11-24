@@ -182,7 +182,7 @@ impl InstrumentRules {
         }
 
         // Check lot multiple: quantity / lot_size should be an integer
-        let ratio = quantity.0 / self.lot_size.0;
+        let ratio = quantity.value() / self.lot_size.value();
         let fract = ratio - ratio.trunc();
         let tolerance = Decimal::from_str("1e-6").unwrap();
         if fract.abs() > tolerance && (Decimal::ONE - fract.abs()) > tolerance {
@@ -201,7 +201,7 @@ impl InstrumentRules {
             return Err(PriceViolation::NonPositive { price });
         }
 
-        let ticks = price.0 / self.tick_size.0;
+        let ticks = price.value() / self.tick_size.value();
         let rounded = ticks.round();
         let diff = (ticks - rounded).abs();
         let tolerance = Decimal::from_str("1e-6").unwrap();

@@ -13,7 +13,7 @@ pub fn fixed_ts() -> DateTime<Utc> {
 
 /// A placeholder instrument for tests where the instrument does not matter.
 pub fn any_instrument() -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, "X")
+    InstrumentId::try_new(Exchange::Nse, "X").unwrap()
 }
 
 /// A `Decimal` helper from integers/fractional `f64` literal.
@@ -25,10 +25,10 @@ pub fn dec_f64(v: f64) -> Decimal {
 pub fn hlc_dec(high: Decimal, low: Decimal, close: Decimal) -> Bar {
     Bar {
         instrument: any_instrument(),
-        open: Price::new(close),
-        high: Price::new(high),
-        low: Price::new(low),
-        close: Price::new(close),
+        open: Price::try_new(close).unwrap(),
+        high: Price::try_new(high).unwrap(),
+        low: Price::try_new(low).unwrap(),
+        close: Price::try_new(close).unwrap(),
         volume: Quantity::from_u64(1),
         timestamp: fixed_ts(),
     }
@@ -38,11 +38,11 @@ pub fn hlc_dec(high: Decimal, low: Decimal, close: Decimal) -> Bar {
 pub fn hlcv_dec(high: Decimal, low: Decimal, close: Decimal, volume: Decimal) -> Bar {
     Bar {
         instrument: any_instrument(),
-        open: Price::new(close),
-        high: Price::new(high),
-        low: Price::new(low),
-        close: Price::new(close),
-        volume: Quantity::new(volume),
+        open: Price::try_new(close).unwrap(),
+        high: Price::try_new(high).unwrap(),
+        low: Price::try_new(low).unwrap(),
+        close: Price::try_new(close).unwrap(),
+        volume: Quantity::try_new(volume).unwrap(),
         timestamp: fixed_ts(),
     }
 }

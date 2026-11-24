@@ -75,7 +75,12 @@ impl Indicator for ChaikinMoneyFlow {
     type Output = Decimal;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<Decimal> {
-        self.update_hlcv(bar.high.0, bar.low.0, bar.close.0, bar.volume.0)
+        self.update_hlcv(
+            bar.high.value(),
+            bar.low.value(),
+            bar.close.value(),
+            bar.volume.value(),
+        )
     }
 
     fn value(&self) -> Option<Decimal> {

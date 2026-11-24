@@ -117,9 +117,15 @@ impl InstrumentMaster {
 
     /// Add an instrument to the master.
     pub fn add(&mut self, entry: InstrumentMasterEntry) {
-        let id = InstrumentId::new(entry.exchange, entry.symbol.clone())
-            .with_token(entry.token.clone().unwrap_or_default())
-            .with_isin(entry.isin.clone().unwrap_or_default());
+        let Ok(mut id) = InstrumentId::try_new(entry.exchange, entry.symbol.clone()) else {
+            return;
+        };
+        if let Some(tok) = &entry.token {
+            id = id.with_token(tok.clone());
+        }
+        if let Some(isin) = &entry.isin {
+            id = id.with_isin(isin.clone());
+        }
 
         self.token_index
             .insert(entry.token.clone().unwrap_or_default(), id.clone());
@@ -153,7 +159,10 @@ impl InstrumentMaster {
             let lot_size_str = record.get(8).unwrap_or("1");
 
             let exchange: Exchange = exchange_str.parse().unwrap_or(Exchange::Nse);
-            let tick_size: Option<Price> = tick_size_str.parse::<Decimal>().ok().map(Price::new);
+            let tick_size: Option<Price> = tick_size_str
+                .parse::<Decimal>()
+                .ok()
+                .and_then(|d| Price::try_new(d).ok());
             let lot_size: Option<u32> = lot_size_str.parse::<u32>().ok();
 
             if symbol.is_empty() {
@@ -196,7 +205,11 @@ impl InstrumentMaster {
         let mut count = 0;
         for record in records {
             let exchange: Exchange = record.exchange.parse().unwrap_or(Exchange::Nse);
-            let tick_size: Option<Price> = record.tick_size.parse::<Decimal>().ok().map(Price::new);
+            let tick_size: Option<Price> = record
+                .tick_size
+                .parse::<Decimal>()
+                .ok()
+                .and_then(|d| Price::try_new(d).ok());
             let lot_size: Option<u32> = record.lot_size.parse::<u32>().ok();
 
             if record.trading_symbol.is_empty() {
@@ -262,7 +275,7 @@ impl InstrumentMaster {
             let tick_size: Option<Price> = face_value
                 .parse::<Decimal>()
                 .ok()
-                .map(|d| Price::new(d / Decimal::from(100)));
+                .and_then(|d| Price::try_new(d / Decimal::from(100)).ok());
 
             let entry = InstrumentMasterEntry {
                 exchange,
@@ -446,7 +459,8 @@ impl CorporateActions {
     /// Adjust a historical price for corporate actions up to the given date.
     pub fn adjust_price(&self, isin: &str, historical_price: Price, as_of: NaiveDate) -> Price {
         let factor = self.adjustment_factor(isin, as_of);
-        Price::new(historical_price.0 * factor)
+        Price::try_new((historical_price.value() * factor).max(Decimal::ZERO))
+            .unwrap_or(historical_price)
     }
 }
 

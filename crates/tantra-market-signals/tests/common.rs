@@ -9,17 +9,17 @@ use tantra_core::{Bar, Exchange, InstrumentId, Price, Quantity};
 
 /// A placeholder instrument for tests where the instrument does not matter.
 pub fn instrument() -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, "X")
+    InstrumentId::try_new(Exchange::Nse, "X").unwrap()
 }
 
 /// Helper to convert f64 to Price
 pub fn price(f: f64) -> Price {
-    Price::new(Decimal::from_f64(f).unwrap())
+    Price::try_new(Decimal::from_f64(f).unwrap()).unwrap()
 }
 
 /// Helper to convert f64 to Quantity
 pub fn quantity(f: f64) -> Quantity {
-    Quantity::new(Decimal::from_f64(f).unwrap())
+    Quantity::try_new(Decimal::from_f64(f).unwrap()).unwrap()
 }
 
 /// Bars with `open == high == low == close`, at one-minute steps.

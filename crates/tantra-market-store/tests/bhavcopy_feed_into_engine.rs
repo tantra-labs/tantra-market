@@ -13,7 +13,7 @@ const FIXTURE: &str = "TradDt,BizDt,Sgmt,Src,FinInstrmTp,FinInstrmId,ISIN,TckrSy
 2024-10-01,2024-10-01,CM,NSE,STK,2,INE467B01029,TCS,EQ,,,,,,4200.00,4250.00,4180.00,4230.00,4230.00,4190.00,,,,,3000000,12690000000,90000,1,1,,,,\n";
 
 fn id(symbol: &str) -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, symbol)
+    InstrumentId::try_new(Exchange::Nse, symbol).unwrap()
 }
 
 #[tokio::test]

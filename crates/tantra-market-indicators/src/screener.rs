@@ -99,21 +99,21 @@ pub fn check_metric(key: &str) -> Result<(), ScreenerError> {
 
 fn series(metric: Metric, bars: &[Bar]) -> Vec<Option<Decimal>> {
     match metric {
-        Metric::Open => bars.iter().map(|b| Some(b.open.0)).collect(),
-        Metric::High => bars.iter().map(|b| Some(b.high.0)).collect(),
-        Metric::Low => bars.iter().map(|b| Some(b.low.0)).collect(),
-        Metric::Close => bars.iter().map(|b| Some(b.close.0)).collect(),
-        Metric::Volume => bars.iter().map(|b| Some(b.volume.0)).collect(),
+        Metric::Open => bars.iter().map(|b| Some(b.open.value())).collect(),
+        Metric::High => bars.iter().map(|b| Some(b.high.value())).collect(),
+        Metric::Low => bars.iter().map(|b| Some(b.low.value())).collect(),
+        Metric::Close => bars.iter().map(|b| Some(b.close.value())).collect(),
+        Metric::Volume => bars.iter().map(|b| Some(b.volume.value())).collect(),
         Metric::Week52Low => (0..bars.len())
             .map(|i| {
                 let start = (i + 1usize).saturating_sub(WEEK52_BARS);
-                bars[start..=i].iter().map(|b| b.low.0).min()
+                bars[start..=i].iter().map(|b| b.low.value()).min()
             })
             .collect(),
         Metric::Week52High => (0..bars.len())
             .map(|i| {
                 let start = (i + 1usize).saturating_sub(WEEK52_BARS);
-                bars[start..=i].iter().map(|b| b.high.0).max()
+                bars[start..=i].iter().map(|b| b.high.value()).max()
             })
             .collect(),
         Metric::Sma(period) => {
@@ -123,7 +123,10 @@ fn series(metric: Metric, bars: &[Bar]) -> Vec<Option<Decimal>> {
                     if i + 1 < period {
                         None
                     } else {
-                        let sum: Decimal = bars[i + 1 - period..=i].iter().map(|b| b.close.0).sum();
+                        let sum: Decimal = bars[i + 1 - period..=i]
+                            .iter()
+                            .map(|b| b.close.value())
+                            .sum();
                         Some(sum / denom)
                     }
                 })
@@ -141,7 +144,7 @@ fn series(metric: Metric, bars: &[Bar]) -> Vec<Option<Decimal>> {
                     let mut gains = Decimal::ZERO;
                     let mut losses = Decimal::ZERO;
                     for j in 1..=PERIOD {
-                        let diff = window[j].close.0 - window[j - 1].close.0;
+                        let diff = window[j].close.value() - window[j - 1].close.value();
                         if diff > Decimal::ZERO {
                             gains += diff;
                         } else {

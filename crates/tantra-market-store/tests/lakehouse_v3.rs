@@ -38,14 +38,14 @@ fn date32_days(d: NaiveDate) -> i32 {
 }
 
 fn make_bar(inst: &InstrumentId, ts: DateTime<Utc>, close: &str) -> Bar {
-    let p = Price(close.parse::<Decimal>().unwrap());
+    let p = Price::try_new(close.parse::<Decimal>().unwrap()).unwrap();
     Bar {
         instrument: inst.clone(),
         open: p,
-        high: Price(p.0 + Decimal::ONE),
-        low: Price(p.0 - Decimal::ONE),
+        high: Price::try_new(p.value() + Decimal::ONE).unwrap(),
+        low: Price::try_new(p.value() - Decimal::ONE).unwrap(),
         close: p,
-        volume: Quantity(Decimal::from(1000)),
+        volume: Quantity::try_new(Decimal::from(1000)).unwrap(),
         timestamp: ts,
     }
 }
@@ -103,7 +103,7 @@ async fn compact_v3_and_pinning_preserves_tags_and_legacy_fallback_gate() {
     let tmp = tempdir().unwrap();
     let root = tmp.path();
 
-    let reliance = InstrumentId::new(Exchange::Nse, "RELIANCE");
+    let reliance = InstrumentId::try_new(Exchange::Nse, "RELIANCE").unwrap();
     let lh = Lakehouse::new(root);
 
     // Phase 1: write initial bar + live ticks across multi-segment flushes via TickRecorder.
@@ -122,8 +122,8 @@ async fn compact_v3_and_pinning_preserves_tags_and_legacy_fallback_gate() {
         recorder
             .record(Tick::Ltp {
                 instrument: reliance.clone(),
-                price: Price("2500.2500".parse().unwrap()),
-                volume: Quantity(Decimal::from(10)),
+                price: Price::try_new("2500.2500".parse().unwrap()).unwrap(),
+                volume: Quantity::try_new(Decimal::from(10)).unwrap(),
                 exchange_ts: utc(2026, 9, 1, 4, 0),
                 receive_ts: utc(2026, 9, 1, 4, 0),
             })
@@ -134,8 +134,8 @@ async fn compact_v3_and_pinning_preserves_tags_and_legacy_fallback_gate() {
         recorder
             .record(Tick::Ltp {
                 instrument: reliance.clone(),
-                price: Price("2501.5000".parse().unwrap()),
-                volume: Quantity(Decimal::from(20)),
+                price: Price::try_new("2501.5000".parse().unwrap()).unwrap(),
+                volume: Quantity::try_new(Decimal::from(20)).unwrap(),
                 exchange_ts: utc(2026, 9, 1, 4, 1),
                 receive_ts: utc(2026, 9, 1, 4, 1),
             })
@@ -161,7 +161,10 @@ async fn compact_v3_and_pinning_preserves_tags_and_legacy_fallback_gate() {
         )
         .unwrap();
     assert_eq!(bars_v1.len(), 1);
-    assert_eq!(bars_v1[0].close.0, "2500.0000".parse::<Decimal>().unwrap());
+    assert_eq!(
+        bars_v1[0].close.value(),
+        "2500.0000".parse::<Decimal>().unwrap()
+    );
 
     let ticks_v1 = strict_v1
         .read_ticks_range(&reliance, utc(2026, 9, 1, 0, 0), utc(2026, 9, 2, 0, 0))
@@ -216,7 +219,7 @@ async fn compact_v3_and_pinning_preserves_tags_and_legacy_fallback_gate() {
     );
 
     // Phase 3: write an uncompacted Hive segment; strict v3 ignores it, legacy fallback sees it.
-    let tcs = InstrumentId::new(Exchange::Nse, "TCS");
+    let tcs = InstrumentId::try_new(Exchange::Nse, "TCS").unwrap();
     lh.write_bars(
         Timeframe::D1,
         &[make_bar(&tcs, utc(2026, 10, 2, 9, 45), "3900.0000")],
@@ -519,9 +522,9 @@ async fn open_interest_and_projection_readers_read_v3_cas_with_large_utf8() {
     let oi_store =
         ParquetOpenInterestStore::open_with_options(root, Some("refs/tags/proj-v1"), false)
             .unwrap();
-    let fut = InstrumentId::new(Exchange::Nfo, "NIFTY26SEPFUT");
+    let fut = InstrumentId::try_new(Exchange::Nfo, "NIFTY26SEPFUT").unwrap();
     let snap = oi_store.latest(&fut, None).await.unwrap().unwrap();
-    assert_eq!(snap.open_interest.0, Decimal::from(12345));
+    assert_eq!(snap.open_interest.value(), Decimal::from(12345));
 
     let deals = BlockDealsProjectionReader::new(root)
         .with_ref("refs/tags/proj-v1")

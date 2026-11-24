@@ -82,7 +82,7 @@ pub trait DataFeed {
 /// use tantra_market_store::{ColumnarSliceBuilder, Dataset};
 /// use tantra_market_store::wire::{BarAggregation, BarSpecification, PriceType, UnixNanos};
 ///
-/// let id = InstrumentId::new(Exchange::Nse, "TCS");
+/// let id = InstrumentId::try_new(Exchange::Nse, "TCS").unwrap();
 /// let spec = BarSpecification::new(1, BarAggregation::Minute, PriceType::Last);
 /// let mut builder = ColumnarSliceBuilder::new(id.clone(), spec);
 /// builder.push(UnixNanos::from_u64(100), 10.0, 12.0, 9.0, 11.0, 500.0)?;
@@ -505,13 +505,13 @@ struct Row {
 ///
 /// fn slice(symbol: &str, ts: u64) -> tantra_market_store::ColumnarSlice {
 ///     let spec = BarSpecification::new(1, BarAggregation::Minute, PriceType::Last);
-///     let mut builder = ColumnarSliceBuilder::new(InstrumentId::new(Exchange::Nse, symbol), spec);
+///     let mut builder = ColumnarSliceBuilder::new(InstrumentId::try_new(Exchange::Nse, symbol).unwrap(), spec);
 ///     builder.push(UnixNanos::from_u64(ts), 1.0, 1.0, 1.0, 1.0, 1.0).unwrap();
 ///     builder.finish().unwrap()
 /// }
 ///
 /// let dataset = Dataset::from_slices(vec![slice("TCS", 2), slice("INFY", 1)])?;
-/// let order: Vec<&str> = dataset.instruments().map(|id| id.symbol.as_str()).collect();
+/// let order: Vec<&str> = dataset.instruments().map(|id| id.symbol()).collect();
 /// assert_eq!(order, vec!["INFY", "TCS"]);
 /// assert_eq!(dataset.bar_count(), 2);
 /// # Ok::<(), tantra_market_store::DatasetBuildError>(())

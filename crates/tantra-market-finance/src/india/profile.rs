@@ -71,7 +71,10 @@ impl SymbolGrammar for IndiaSymbolGrammar {
         // Validate basic cash equity symbol
         self.validate(symbol)?;
 
-        Ok(InstrumentId::new(exchange, symbol))
+        InstrumentId::try_new(exchange, symbol).map_err(|e| crate::MarketError::InvalidSymbol {
+            symbol: raw.to_string(),
+            reason: e.to_string(),
+        })
     }
 }
 

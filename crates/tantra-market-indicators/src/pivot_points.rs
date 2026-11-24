@@ -119,7 +119,7 @@ impl Indicator for PivotPoints {
     type Output = PivotValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<PivotValue> {
-        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
+        self.update_hlc(bar.high.value(), bar.low.value(), bar.close.value())
     }
 
     fn value(&self) -> Option<PivotValue> {

@@ -34,13 +34,13 @@ fn d(s: &str) -> Decimal {
     Decimal::from_str(s).unwrap()
 }
 fn px(s: &str) -> Price {
-    Price(d(s))
+    Price::try_new(d(s)).unwrap()
 }
 fn qty(n: u64) -> Quantity {
     Quantity::from_u64(n)
 }
 fn infy() -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, "INFY")
+    InstrumentId::try_new(Exchange::Nse, "INFY").unwrap()
 }
 /// 2026-10-20 09:15:00 IST + `sec` seconds.
 fn at(sec: i64) -> DateTime<Utc> {
@@ -49,7 +49,7 @@ fn at(sec: i64) -> DateTime<Utc> {
 
 fn ltp(sym: &str, price: &str, sec: i64) -> Tick {
     Tick::Ltp {
-        instrument: InstrumentId::new(Exchange::Nse, sym),
+        instrument: InstrumentId::try_new(Exchange::Nse, sym).unwrap(),
         price: px(price),
         volume: qty(100),
         exchange_ts: at(sec),
@@ -67,12 +67,10 @@ fn quote(sec: i64) -> Tick {
         last_price: Some(px("1500.00")),
         exchange_ts: at(sec),
         receive_ts: at(sec),
-        band: Some(PriceBand {
-            lower: px("1350.00"),
-            upper: px("1650.00"),
-            reference_price: px("1500.00"),
-            band_pct: Some(d("0.10")),
-        }),
+        band: Some(
+            PriceBand::try_from_parts(px("1350.00"), px("1650.00"), px("1500.00"), Some(d("0.10")))
+                .unwrap(),
+        ),
     }
 }
 
@@ -187,7 +185,7 @@ fn repeated_writes_append_part_files_and_read_back_merged() {
         .read_ticks_range(&infy(), from, to)
         .unwrap()
         .iter()
-        .map(|t| t.last_price().unwrap().0)
+        .map(|t| t.last_price().unwrap().value())
         .collect();
     assert_eq!(
         prices,
@@ -209,8 +207,8 @@ fn reads_are_scoped_to_instrument_and_inclusive_time_range() {
     .unwrap();
     let got = lake.read_ticks_range(&infy(), at(10), at(20)).unwrap();
     assert_eq!(got.len(), 2, "both bounds inclusive");
-    assert!(got.iter().all(|t| t.instrument().symbol == "INFY"));
-    let bse = InstrumentId::new(Exchange::Bse, "INFY");
+    assert!(got.iter().all(|t| t.instrument().symbol() == "INFY"));
+    let bse = InstrumentId::try_new(Exchange::Bse, "INFY").unwrap();
     assert!(
         lake.read_ticks_range(&bse, at(-100), at(100))
             .unwrap()
@@ -232,7 +230,7 @@ fn prices_are_rounded_to_the_column_scale() {
     lake.write_ticks(&[ltp("INFY", "100.123456", 0)]).unwrap();
     let (from, to) = window();
     let t = lake.read_ticks_range(&infy(), from, to).unwrap();
-    assert_eq!(t[0].last_price().unwrap().0, d("100.1235"));
+    assert_eq!(t[0].last_price().unwrap().value(), d("100.1235"));
 }
 
 #[test]
@@ -423,9 +421,9 @@ fn legacy_tick_store_migrates_into_the_lakehouse_as_exact_decimals() {
     assert_eq!(migrate_tick_store(&legacy, &lake).unwrap(), 2);
     let (from, to) = window();
     let ticks = lake.read_ticks_range(&infy(), from, to).unwrap();
-    assert!(matches!(&ticks[0], Tick::Quote { bid, .. } if bid.0 == d("1499.95")));
+    assert!(matches!(&ticks[0], Tick::Quote { bid, .. } if bid.value() == d("1499.95")));
     assert!(matches!(&ticks[1], Tick::Ltp { price, volume, .. }
-        if price.0 == d("1500") && volume.0 == d("5")));
+        if price.value() == d("1500") && volume.value() == d("5")));
 
     let spec = BarSpecification::new(1, BarAggregation::Day, PriceType::Last);
     let wire_bar = WireBar::new(
@@ -439,6 +437,6 @@ fn legacy_tick_store_migrates_into_the_lakehouse_as_exact_decimals() {
         ns(0),
     );
     let bars = bars_to_canonical(&[wire_bar]);
-    assert_eq!(bars[0].close.0, d("100.75"));
+    assert_eq!(bars[0].close.value(), d("100.75"));
     assert_eq!(bars[0].timestamp, at(0));
 }

@@ -8,13 +8,14 @@ use tantra_market_core::MarketDataEnricher;
 
 #[test]
 fn enricher_attaches_price_band_to_quote_ticks() {
-    let inst = InstrumentId::new(Exchange::Nse, "INFY");
+    let inst = InstrumentId::try_new(Exchange::Nse, "INFY").unwrap();
     let mut enricher = MarketDataEnricher::new();
-    let band = PriceBand::new(
+    let band = PriceBand::try_new(
         Price::from_rupees("1500.00").unwrap(),
         Price::from_rupees("1650.00").unwrap(),
         Price::from_rupees("1575.00").unwrap(),
-    );
+    )
+    .unwrap();
     enricher.set_price_band(inst.clone(), band);
 
     let now = Utc::now();
@@ -39,7 +40,7 @@ fn enricher_attaches_price_band_to_quote_ticks() {
 
 #[test]
 fn enricher_tracks_intraday_vwap_from_ltp_ticks() {
-    let inst = InstrumentId::new(Exchange::Nse, "WIPRO");
+    let inst = InstrumentId::try_new(Exchange::Nse, "WIPRO").unwrap();
     let mut enricher = MarketDataEnricher::new();
     let now = Utc::now();
 

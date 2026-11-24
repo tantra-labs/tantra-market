@@ -269,8 +269,8 @@ pub fn write_tick_file(
 
     for q in quotes {
         kinds.push("quote");
-        symbols.push(q.instrument_id().symbol.clone());
-        exchanges.push(exchange_str(q.instrument_id().exchange));
+        symbols.push(q.instrument_id().symbol().to_string());
+        exchanges.push(exchange_str(q.instrument_id().exchange()));
         ts_events.push(q.ts_event().as_u64() as i64);
         ts_inits.push(Some(q.ts_init().as_u64() as i64));
         bid_prices.push(Some(q.bid_price()));
@@ -284,8 +284,8 @@ pub fn write_tick_file(
     }
     for t in trades {
         kinds.push("trade");
-        symbols.push(t.instrument_id().symbol.clone());
-        exchanges.push(exchange_str(t.instrument_id().exchange));
+        symbols.push(t.instrument_id().symbol().to_string());
+        exchanges.push(exchange_str(t.instrument_id().exchange()));
         ts_events.push(t.ts_event().as_u64() as i64);
         ts_inits.push(Some(t.ts_init().as_u64() as i64));
         bid_prices.push(None);
@@ -398,7 +398,9 @@ fn parse_depth_json(raw: &str, file: &str, row: usize) -> Result<DepthSnapshot, 
                         .ok_or_else(|| bad("depth_json qty is not a string".into()))?,
                 )
                 .map_err(|e| bad(format!("depth_json qty parse: {e}")))?;
-                out.push((Price::new(price), Quantity::new(qty)));
+                let p = Price::try_new(price).map_err(|e| bad(format!("depth_json price: {e}")))?;
+                let q = Quantity::try_new(qty).map_err(|e| bad(format!("depth_json qty: {e}")))?;
+                out.push((p, q));
             }
             Ok(out)
         };
@@ -437,8 +439,8 @@ pub fn write_depth_file(path: &Path, depth: &[DepthTick]) -> Result<(), TickStor
     let mut depth_jsons = Vec::with_capacity(depth.len());
     for tick in depth {
         kinds.push("depth");
-        symbols.push(tick.instrument.symbol.clone());
-        exchanges.push(exchange_str(tick.instrument.exchange));
+        symbols.push(tick.instrument.symbol().to_string());
+        exchanges.push(exchange_str(tick.instrument.exchange()));
         ts_events.push(tick.ts_event.as_u64() as i64);
         ts_inits.push(Some(tick.ts_event.as_u64() as i64));
         depth_jsons.push(Some(depth_json(&tick.snapshot)));
@@ -635,7 +637,8 @@ fn append_batch(
                 format!("{} is not a known exchange", exchanges.value(row)),
             )
         })?;
-        let instrument = InstrumentId::new(exchange, symbols.value(row).to_string());
+        let instrument = InstrumentId::try_new(exchange, symbols.value(row))
+            .map_err(|e| bad(row, e.to_string()))?;
         let wire_instrument = serde_json::to_value(&instrument).expect("an instrument serializes");
         let ts_event = UnixNanos::from_u64(ts_events.value(row) as u64);
         let ts_init = if ts_inits.is_null(row) {

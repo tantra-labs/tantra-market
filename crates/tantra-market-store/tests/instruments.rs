@@ -88,8 +88,8 @@ async fn catalog_resolves_expired_contract() {
     let master = CatalogInstrumentMaster::open(&dir.0).unwrap();
     let as_of = NaiveDate::from_ymd_opt(2024, 11, 15).unwrap();
 
-    let expired = InstrumentId::new(Exchange::Nse, "NIFTY24OCTFUT");
-    let live = InstrumentId::new(Exchange::Nse, "NIFTY24DECFUT");
+    let expired = InstrumentId::try_new(Exchange::Nse, "NIFTY24OCTFUT").unwrap();
+    let live = InstrumentId::try_new(Exchange::Nse, "NIFTY24DECFUT").unwrap();
 
     // The dated catalog is the gate: the contract expired on 2024-10-31.
     assert!(
@@ -145,8 +145,8 @@ async fn catalog_reads_display_name_column() {
     writer.close().unwrap();
 
     let master = CatalogInstrumentMaster::open(&dir.0).unwrap();
-    let reliance = InstrumentId::new(Exchange::Nse, "RELIANCE-EQ");
-    let tcs = InstrumentId::new(Exchange::Nse, "TCS-EQ");
+    let reliance = InstrumentId::try_new(Exchange::Nse, "RELIANCE-EQ").unwrap();
+    let tcs = InstrumentId::try_new(Exchange::Nse, "TCS-EQ").unwrap();
     assert_eq!(
         master
             .get_instrument(&reliance)
@@ -208,7 +208,7 @@ async fn catalog_without_display_name_column_still_loads() {
     writer.close().unwrap();
 
     let master = CatalogInstrumentMaster::open(&dir.0).unwrap();
-    let reliance = InstrumentId::new(Exchange::Nse, "RELIANCE-EQ");
+    let reliance = InstrumentId::try_new(Exchange::Nse, "RELIANCE-EQ").unwrap();
     let instrument = master.get_instrument(&reliance).await.unwrap().unwrap();
     assert_eq!(instrument.display_name(), None);
 }
@@ -257,7 +257,7 @@ async fn catalog_rejects_float64_unless_legacy_migration_loader_used() {
 
     // Migration-only loader accepts them.
     let master = CatalogInstrumentMaster::open_legacy_float64(&dir.0).unwrap();
-    let infy = InstrumentId::new(Exchange::Nse, "INFY-EQ");
+    let infy = InstrumentId::try_new(Exchange::Nse, "INFY-EQ").unwrap();
     assert!(master.get_instrument(&infy).await.unwrap().is_some());
 }
 
@@ -358,14 +358,14 @@ async fn catalog_loads_v3_manifest_and_pinned_tags() {
     let main_master = CatalogInstrumentMaster::open(&dir.0).unwrap();
     assert!(
         main_master
-            .get_instrument(&InstrumentId::new(Exchange::Nse, "TCS-EQ"))
+            .get_instrument(&InstrumentId::try_new(Exchange::Nse, "TCS-EQ").unwrap())
             .await
             .unwrap()
             .is_some()
     );
     assert!(
         main_master
-            .get_instrument(&InstrumentId::new(Exchange::Nse, "RELIANCE-EQ"))
+            .get_instrument(&InstrumentId::try_new(Exchange::Nse, "RELIANCE-EQ").unwrap())
             .await
             .unwrap()
             .is_none()
@@ -375,14 +375,14 @@ async fn catalog_loads_v3_manifest_and_pinned_tags() {
         CatalogInstrumentMaster::open_at_ref(&dir.0, Some("refs/tags/inst-v1"), false).unwrap();
     assert!(
         v1_master
-            .get_instrument(&InstrumentId::new(Exchange::Nse, "RELIANCE-EQ"))
+            .get_instrument(&InstrumentId::try_new(Exchange::Nse, "RELIANCE-EQ").unwrap())
             .await
             .unwrap()
             .is_some()
     );
     assert!(
         v1_master
-            .get_instrument(&InstrumentId::new(Exchange::Nse, "TCS-EQ"))
+            .get_instrument(&InstrumentId::try_new(Exchange::Nse, "TCS-EQ").unwrap())
             .await
             .unwrap()
             .is_none()

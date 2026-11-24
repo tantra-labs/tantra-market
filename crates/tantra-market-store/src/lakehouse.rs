@@ -271,17 +271,20 @@ fn uid_for_instrument(
     aliases: &[InstrumentAlias],
     as_of: NaiveDate,
 ) -> String {
-    if let Some(isin) = &inst.isin
+    if let Some(isin) = inst.isin()
         && !isin.is_empty()
     {
-        return isin.clone();
+        return isin.to_string();
     }
-    if let Some(uid) =
-        ManifestResolver::resolve_alias(aliases, inst.exchange.as_str(), &inst.symbol, Some(as_of))
-    {
+    if let Some(uid) = ManifestResolver::resolve_alias(
+        aliases,
+        inst.exchange().as_str(),
+        inst.symbol(),
+        Some(as_of),
+    ) {
         return uid;
     }
-    format!("{}:{}", inst.exchange.as_str(), inst.symbol)
+    format!("{}:{}", inst.exchange().as_str(), inst.symbol())
 }
 
 #[derive(Serialize, Deserialize)]
@@ -327,10 +330,10 @@ impl TickColumns {
     ) -> Result<(), LakehouseError> {
         self.instrument_uid.push(uid);
         self.kind.push(kind);
-        self.symbol.push(inst.symbol.clone());
-        self.exchange.push(inst.exchange.as_str());
-        self.token.push(inst.token.clone());
-        self.isin.push(inst.isin.clone());
+        self.symbol.push(inst.symbol().to_string());
+        self.exchange.push(inst.exchange().as_str());
+        self.token.push(inst.token().map(str::to_string));
+        self.isin.push(inst.isin().map(str::to_string));
         self.exchange_ts.push(nanos(ets)?);
         self.receive_ts.push(nanos(rts)?);
         for c in [
@@ -359,8 +362,8 @@ impl TickColumns {
                 receive_ts,
             } => {
                 self.push_common(uid, "ltp", instrument, *exchange_ts, *receive_ts)?;
-                set(&mut self.price, price.0)?;
-                set(&mut self.volume, volume.0)?;
+                set(&mut self.price, price.value())?;
+                set(&mut self.volume, volume.value())?;
             }
             Tick::Quote {
                 instrument,
@@ -374,12 +377,12 @@ impl TickColumns {
                 band,
             } => {
                 self.push_common(uid, "quote", instrument, *exchange_ts, *receive_ts)?;
-                set(&mut self.bid, bid.0)?;
-                set(&mut self.ask, ask.0)?;
-                set(&mut self.bid_qty, bid_qty.0)?;
-                set(&mut self.ask_qty, ask_qty.0)?;
+                set(&mut self.bid, bid.value())?;
+                set(&mut self.ask, ask.value())?;
+                set(&mut self.bid_qty, bid_qty.value())?;
+                set(&mut self.ask_qty, ask_qty.value())?;
                 if let Some(lp) = last_price {
-                    set(&mut self.last_price, lp.0)?;
+                    set(&mut self.last_price, lp.value())?;
                 }
                 if let Some(b) = band {
                     *self.band_json.last_mut().expect("row pushed") =
@@ -396,7 +399,7 @@ impl TickColumns {
             } => {
                 self.push_common(uid, "depth", instrument, *exchange_ts, *receive_ts)?;
                 if let Some(lp) = last_price {
-                    set(&mut self.last_price, lp.0)?;
+                    set(&mut self.last_price, lp.value())?;
                 }
                 let json = serde_json::to_string(&DepthJson {
                     bids: bids.clone(),
@@ -487,20 +490,20 @@ fn bars_batch(bars: &[&Bar]) -> Result<RecordBatch, LakehouseError> {
     let columns: Vec<ArrayRef> = vec![
         Arc::new(StringArray::from(
             bars.iter()
-                .map(|b| b.instrument.symbol.clone())
+                .map(|b| b.instrument.symbol().to_string())
                 .collect::<Vec<_>>(),
         )),
         Arc::new(StringArray::from(
             bars.iter()
-                .map(|b| b.instrument.exchange.as_str())
+                .map(|b| b.instrument.exchange().as_str())
                 .collect::<Vec<_>>(),
         )),
         Arc::new(TimestampNanosecondArray::from(stamps).with_timezone("UTC")),
-        dec(&|b| b.open.0)?,
-        dec(&|b| b.high.0)?,
-        dec(&|b| b.low.0)?,
-        dec(&|b| b.close.0)?,
-        dec(&|b| b.volume.0)?,
+        dec(&|b| b.open.value())?,
+        dec(&|b| b.high.value())?,
+        dec(&|b| b.low.value())?,
+        dec(&|b| b.close.value())?,
+        dec(&|b| b.volume.value())?,
     ];
     Ok(RecordBatch::try_new(Arc::new(bar_schema_v2()), columns)?)
 }
@@ -525,20 +528,20 @@ fn bars_batch_v3(bars: &[(String, Bar)]) -> Result<RecordBatch, LakehouseError> 
         )),
         Arc::new(StringArray::from(
             bars.iter()
-                .map(|(_, b)| b.instrument.symbol.clone())
+                .map(|(_, b)| b.instrument.symbol().to_string())
                 .collect::<Vec<_>>(),
         )),
         Arc::new(StringArray::from(
             bars.iter()
-                .map(|(_, b)| b.instrument.exchange.as_str())
+                .map(|(_, b)| b.instrument.exchange().as_str())
                 .collect::<Vec<_>>(),
         )),
         Arc::new(TimestampNanosecondArray::from(stamps).with_timezone("UTC")),
-        dec(&|b| b.open.0)?,
-        dec(&|b| b.high.0)?,
-        dec(&|b| b.low.0)?,
-        dec(&|b| b.close.0)?,
-        dec(&|b| b.volume.0)?,
+        dec(&|b| b.open.value())?,
+        dec(&|b| b.high.value())?,
+        dec(&|b| b.low.value())?,
+        dec(&|b| b.close.value())?,
+        dec(&|b| b.volume.value())?,
     ];
     Ok(RecordBatch::try_new(Arc::new(bar_schema_v3()), columns)?)
 }
@@ -700,11 +703,16 @@ fn file_name(path: &Path) -> String {
 }
 
 fn parse_uid(uid: &str, file: &str, row: usize) -> Result<InstrumentId, LakehouseError> {
+    let err = |e: tantra_core::CoreError| LakehouseError::BadRow {
+        file: file.to_string(),
+        row,
+        message: e.to_string(),
+    };
     if let Some((ex_str, sym)) = uid.split_once(':') {
         let ex = parse_exchange(ex_str, file, row)?;
-        return Ok(InstrumentId::new(ex, sym));
+        return InstrumentId::try_new(ex, sym).map_err(err);
     }
-    Ok(InstrumentId::new(Exchange::Nse, uid))
+    InstrumentId::try_new(Exchange::Nse, uid).map_err(err)
 }
 
 fn read_tick_file(path: &Path, out: &mut Vec<Tick>) -> Result<(), LakehouseError> {
@@ -736,30 +744,40 @@ fn read_tick_file(path: &Path, out: &mut Vec<Tick>) -> Result<(), LakehouseError
             let need = |vals: &[Option<Decimal>], name: &str| {
                 vals[i].ok_or_else(|| bad(format!("{} row without `{name}`", kind.value(i))))
             };
-            let mut instrument = InstrumentId::new(
+            let mut instrument = InstrumentId::try_new(
                 parse_exchange(exchange.value(i), &file, i)?,
                 symbol.value(i),
-            );
-            instrument.token = opt_str(&token, i);
-            instrument.isin = opt_str(&isin, i);
+            )
+            .map_err(|e| bad(e.to_string()))?;
+            if let Some(tok) = opt_str(&token, i) {
+                instrument = instrument.with_token(tok);
+            }
+            if let Some(isin_val) = opt_str(&isin, i) {
+                instrument = instrument.with_isin(isin_val);
+            }
+            let parse_price =
+                |d: Decimal, name: &str| Price::try_new(d).map_err(|e| bad(format!("{name}: {e}")));
+            let parse_qty = |d: Decimal, name: &str| {
+                Quantity::try_new(d).map_err(|e| bad(format!("{name}: {e}")))
+            };
             let exchange_ts = ets[i];
             let receive_ts = rts[i];
-            let last_price = last[i].map(Price);
+            let last_price = last[i].map(|d| parse_price(d, "last_price")).transpose()?;
 
             let tick = match kind.value(i) {
                 "ltp" => Tick::Ltp {
                     instrument,
-                    price: Price(need(&price, "price")?),
-                    volume: Quantity(need(&volume, "volume")?),
+                    price: parse_price(need(&price, "price")?, "price")?,
+                    volume: parse_qty(need(&volume, "volume")?, "volume")?,
                     exchange_ts,
                     receive_ts,
                 },
                 "quote" => Tick::Quote {
                     instrument,
-                    bid: Price(need(&bid, "bid")?),
-                    ask: Price(need(&ask, "ask")?),
-                    bid_qty: Quantity(need(&bid_qty, "bid_qty")?),
-                    ask_qty: Quantity(need(&ask_qty, "ask_qty")?),
+                    bid: parse_price(need(&bid, "bid")?, "bid")?,
+                    ask: parse_price(need(&ask, "ask")?, "ask")?,
+                    bid_qty: parse_qty(need(&bid_qty, "bid_qty")?, "bid_qty")?,
+                    ask_qty: parse_qty(need(&ask_qty, "ask_qty")?, "ask_qty")?,
                     last_price,
                     exchange_ts,
                     receive_ts,
@@ -820,9 +838,9 @@ fn read_bar_file(
 
             if let Some(inst) = target_instrument {
                 let uid_match = target_uid.is_some_and(|u| uid_val == Some(u));
-                let sym_match = sym_val.is_some_and(|s| s.eq_ignore_ascii_case(&inst.symbol))
-                    && ex_val.is_none_or(|e| e.eq_ignore_ascii_case(inst.exchange.as_str()));
-                let fallback_uid_str = format!("{}:{}", inst.exchange.as_str(), inst.symbol);
+                let sym_match = sym_val.is_some_and(|s| s.eq_ignore_ascii_case(inst.symbol()))
+                    && ex_val.is_none_or(|e| e.eq_ignore_ascii_case(inst.exchange().as_str()));
+                let fallback_uid_str = format!("{}:{}", inst.exchange().as_str(), inst.symbol());
                 let fallback_uid_match = uid_val == Some(fallback_uid_str.as_str());
                 if !uid_match && !sym_match && !fallback_uid_match {
                     continue;
@@ -836,13 +854,19 @@ fn read_bar_file(
                     message: format!("bar row without `{name}`"),
                 })
             };
+            let bad = |message: String| LakehouseError::BadRow {
+                file: file.clone(),
+                row: i,
+                message,
+            };
 
             let instrument = if let Some(inst) = target_instrument {
                 inst.clone()
             } else if let (Some(sym), Some(ex_s)) = (sym_val, ex_val) {
-                InstrumentId::new(parse_exchange(ex_s, &file, i)?, sym)
+                InstrumentId::try_new(parse_exchange(ex_s, &file, i)?, sym)
+                    .map_err(|e| bad(e.to_string()))?
             } else if let (Some(sym), Some(ex)) = (sym_val, default_exchange) {
-                InstrumentId::new(ex, sym)
+                InstrumentId::try_new(ex, sym).map_err(|e| bad(e.to_string()))?
             } else if let Some(u) = uid_val {
                 parse_uid(u, &file, i)?
             } else {
@@ -851,11 +875,13 @@ fn read_bar_file(
 
             out.push(Bar {
                 instrument,
-                open: Price(get(&open, "open")?),
-                high: Price(get(&high, "high")?),
-                low: Price(get(&low, "low")?),
-                close: Price(get(&close, "close")?),
-                volume: Quantity(volume[i].unwrap_or(Decimal::ZERO)),
+                open: Price::try_new(get(&open, "open")?).map_err(|e| bad(format!("open: {e}")))?,
+                high: Price::try_new(get(&high, "high")?).map_err(|e| bad(format!("high: {e}")))?,
+                low: Price::try_new(get(&low, "low")?).map_err(|e| bad(format!("low: {e}")))?,
+                close: Price::try_new(get(&close, "close")?)
+                    .map_err(|e| bad(format!("close: {e}")))?,
+                volume: Quantity::try_new(volume[i].unwrap_or(Decimal::ZERO))
+                    .map_err(|e| bad(format!("volume: {e}")))?,
                 timestamp: ts[i],
             });
         }
@@ -1014,7 +1040,11 @@ impl Lakehouse {
         for t in ticks {
             let inst = t.instrument();
             groups
-                .entry((inst.exchange, ist_date(exchange_ts(t)), inst.symbol.clone()))
+                .entry((
+                    inst.exchange(),
+                    ist_date(exchange_ts(t)),
+                    inst.symbol().to_string(),
+                ))
                 .or_default()
                 .push(t);
         }
@@ -1024,8 +1054,8 @@ impl Lakehouse {
             for t in group {
                 let uid = format!(
                     "{}:{}",
-                    t.instrument().exchange.as_str(),
-                    t.instrument().symbol
+                    t.instrument().exchange().as_str(),
+                    t.instrument().symbol()
                 );
                 cols.push(t, uid)?;
             }
@@ -1045,10 +1075,10 @@ impl Lakehouse {
             let d = ist_date(b.timestamp);
             groups
                 .entry((
-                    b.instrument.exchange,
+                    b.instrument.exchange(),
                     d.year(),
                     d.month(),
-                    b.instrument.symbol.clone(),
+                    b.instrument.symbol().to_string(),
                 ))
                 .or_default()
                 .push(b);
@@ -1339,8 +1369,8 @@ impl Lakehouse {
         };
         let resolved_uid = ManifestResolver::resolve_alias(
             &aliases,
-            instrument.exchange.as_str(),
-            &instrument.symbol,
+            instrument.exchange().as_str(),
+            instrument.symbol(),
             None,
         );
         let alt_uids: HashSet<String> = if let Some(ref u) = resolved_uid {
@@ -1349,17 +1379,17 @@ impl Lakehouse {
                 .map(|a| a.symbol.clone())
                 .collect();
             set.insert(u.clone());
-            set.insert(instrument.symbol.clone());
+            set.insert(instrument.symbol().to_string());
             set
         } else {
-            [instrument.symbol.clone()].into_iter().collect()
+            [instrument.symbol().to_string()].into_iter().collect()
         };
 
         if has_v3 {
             let (_, matched) = resolver.resolve_partition_entries(
                 "market",
                 "ticks",
-                Some(instrument.exchange.as_str()),
+                Some(instrument.exchange().as_str()),
                 None,
                 None,
                 None,
@@ -1376,8 +1406,8 @@ impl Lakehouse {
         if self.legacy_fallback && self.reference.is_none() {
             let (mut day, last) = (ist_date(from), ist_date(to));
             while day <= last {
-                let dir = self.tick_partition_dir(instrument.exchange, day);
-                for path in symbol_files(&dir, &instrument.symbol)? {
+                let dir = self.tick_partition_dir(instrument.exchange(), day);
+                for path in symbol_files(&dir, instrument.symbol())? {
                     read_tick_file(&path, &mut out)?;
                 }
                 match day.succ_opt() {
@@ -1392,8 +1422,8 @@ impl Lakehouse {
             let ts = exchange_ts(t);
             let isin_match = resolved_uid
                 .as_ref()
-                .is_some_and(|u| i.isin.as_deref() == Some(u.as_str()));
-            (isin_match || (i.exchange == instrument.exchange && alt_uids.contains(&i.symbol)))
+                .is_some_and(|u| i.isin() == Some(u.as_str()));
+            (isin_match || (i.exchange() == instrument.exchange() && alt_uids.contains(i.symbol())))
                 && ts >= from
                 && ts <= to
         });
@@ -1426,8 +1456,8 @@ impl Lakehouse {
         };
         let resolved_uid = ManifestResolver::resolve_alias(
             &aliases,
-            instrument.exchange.as_str(),
-            &instrument.symbol,
+            instrument.exchange().as_str(),
+            instrument.symbol(),
             None,
         );
         let target_uid = resolved_uid.as_deref();
@@ -1437,7 +1467,7 @@ impl Lakehouse {
             let (_, matched) = resolver.resolve_partition_entries(
                 "market",
                 "bars",
-                Some(instrument.exchange.as_str()),
+                Some(instrument.exchange().as_str()),
                 None,
                 Some(tf_name),
                 None,
@@ -1449,7 +1479,7 @@ impl Lakehouse {
                 }
                 read_bar_file(
                     &path,
-                    Some(instrument.exchange),
+                    Some(instrument.exchange()),
                     target_uid,
                     Some(instrument),
                     &mut out,
@@ -1461,11 +1491,11 @@ impl Lakehouse {
             let (f, l) = (ist_date(from), ist_date(to));
             let (mut year, mut month) = (f.year(), f.month());
             while (year, month) <= (l.year(), l.month()) {
-                let dir = self.bar_partition_dir(tf, instrument.exchange, year, month);
-                for path in symbol_files(&dir, &instrument.symbol)? {
+                let dir = self.bar_partition_dir(tf, instrument.exchange(), year, month);
+                for path in symbol_files(&dir, instrument.symbol())? {
                     read_bar_file(
                         &path,
-                        Some(instrument.exchange),
+                        Some(instrument.exchange()),
                         target_uid,
                         Some(instrument),
                         &mut out,

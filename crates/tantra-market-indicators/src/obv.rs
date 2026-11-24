@@ -49,8 +49,8 @@ impl Indicator for Obv {
     type Output = Decimal;
 
     fn update(&mut self, bar: &Bar) -> Option<Decimal> {
-        let close = bar.close.0;
-        let volume = bar.volume.0;
+        let close = bar.close.value();
+        let volume = bar.volume.value();
 
         if let Some(prev_close) = self.prev_close {
             if close > prev_close {

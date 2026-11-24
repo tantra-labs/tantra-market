@@ -117,7 +117,9 @@ impl DatasetReader {
                     let exchange: Exchange = exchange
                         .parse()
                         .map_err(|_| ReaderError::FileName(file_name(&path)))?;
-                    files.push((InstrumentId::new(exchange, symbol), path));
+                    let inst = InstrumentId::try_new(exchange, symbol)
+                        .map_err(|_| ReaderError::FileName(file_name(&path)))?;
+                    files.push((inst, path));
                 }
                 _ => return Err(ReaderError::FileName(file_name(&path))),
             }
@@ -168,7 +170,7 @@ impl InstrumentMaster for DatasetReader {
                 inst.kind() == InstrumentKind::Option
                     && inst
                         .underlying()
-                        .is_some_and(|u| u.eq_ignore_ascii_case(&underlying.symbol))
+                        .is_some_and(|u| u.eq_ignore_ascii_case(underlying.symbol()))
             })
             .cloned()
             .collect();

@@ -52,7 +52,7 @@ impl Clock for FakeClock {
 }
 
 fn reliance() -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, "RELIANCE")
+    InstrumentId::try_new(Exchange::Nse, "RELIANCE").unwrap()
 }
 
 fn bar(close: f64, ts: u64) -> Bar {

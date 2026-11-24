@@ -74,9 +74,9 @@ impl Indicator for Cpr {
     type Output = Decimal;
 
     fn update(&mut self, bar: &Bar) -> Option<Decimal> {
-        let high = bar.high.0;
-        let low = bar.low.0;
-        let close = bar.close.0;
+        let high = bar.high.value();
+        let low = bar.low.value();
+        let close = bar.close.value();
 
         let three = Decimal::from(3);
         let pivot = (high + low + close) / three;

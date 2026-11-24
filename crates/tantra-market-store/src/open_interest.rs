@@ -333,12 +333,12 @@ pub fn write_oi_file(
 
     let symbols = StringArray::from(
         rows.iter()
-            .map(|row| Some(row.instrument.symbol.as_str()))
+            .map(|row| Some(row.instrument.symbol()))
             .collect::<Vec<_>>(),
     );
     let exchanges = StringArray::from(
         rows.iter()
-            .map(|row| Some(row.instrument.exchange.as_str()))
+            .map(|row| Some(row.instrument.exchange().as_str()))
             .collect::<Vec<_>>(),
     );
     let as_ofs = StringArray::from(
@@ -348,7 +348,7 @@ pub fn write_oi_file(
     );
     let ois: Decimal128Array = rows
         .iter()
-        .map(|row| to_scaled_i128(row.open_interest.0, OI_SCALE))
+        .map(|row| to_scaled_i128(row.open_interest.value(), OI_SCALE))
         .collect();
     let ois = ois
         .with_precision_and_scale(38, OI_SCALE as i8)
@@ -432,7 +432,12 @@ fn read_file(
                     column: "exchange",
                     value: ex_str.to_string(),
                 })?;
-                InstrumentId::new(exchange, sym_arr.value(row))
+                InstrumentId::try_new(exchange, sym_arr.value(row)).map_err(|_| {
+                    OiStoreError::BadValue {
+                        column: "symbol",
+                        value: sym_arr.value(row).to_string(),
+                    }
+                })?
             } else if let Some(uid_arr) = &uids {
                 let uid = uid_arr.value(row);
                 if let Some((ex_s, sym_s)) = uid.split_once(':') {
@@ -440,15 +445,27 @@ fn read_file(
                         column: "instrument_uid",
                         value: uid.to_string(),
                     })?;
-                    InstrumentId::new(exchange, sym_s)
+                    InstrumentId::try_new(exchange, sym_s).map_err(|_| OiStoreError::BadValue {
+                        column: "instrument_uid",
+                        value: uid.to_string(),
+                    })?
                 } else {
-                    InstrumentId::new(Exchange::Nfo, uid)
+                    InstrumentId::try_new(Exchange::Nfo, uid).map_err(|_| {
+                        OiStoreError::BadValue {
+                            column: "instrument_uid",
+                            value: uid.to_string(),
+                        }
+                    })?
                 }
             } else {
                 return Err(OiStoreError::MissingColumn("symbol"));
             };
             let oi = Decimal::from_i128_with_scale(ois.value(row), scale);
-            rows.insert((instrument, date), Quantity::new(oi));
+            let oi_qty = Quantity::try_new(oi).map_err(|_| OiStoreError::BadValue {
+                column: "open_interest",
+                value: oi.to_string(),
+            })?;
+            rows.insert((instrument, date), oi_qty);
         }
     }
     Ok(())

@@ -10,13 +10,16 @@ use tantra_market_finance::{
 
 #[test]
 fn new_rules_default_min_quantity_to_one_lot() {
-    let r = InstrumentRules::new(Quantity::new(dec!(25.0)), Price::new(dec!(0.05)));
-    assert_eq!(r.min_order_quantity, Quantity::new(dec!(25.0)));
+    let r = InstrumentRules::new(
+        Quantity::try_new(dec!(25.0)).unwrap(),
+        Price::try_new(dec!(0.05)).unwrap(),
+    );
+    assert_eq!(r.min_order_quantity, Quantity::try_new(dec!(25.0)).unwrap());
     assert_eq!(r.max_order_quantity, None);
     assert_eq!(
-        r.with_max_quantity(Quantity::new(dec!(1800.0)))
+        r.with_max_quantity(Quantity::try_new(dec!(1800.0)).unwrap())
             .max_order_quantity,
-        Some(Quantity::new(dec!(1800.0)))
+        Some(Quantity::try_new(dec!(1800.0)).unwrap())
     );
 }
 
@@ -28,7 +31,8 @@ fn quantity_must_be_a_lot_multiple_within_bounds() {
     let q125 = Quantity::from_u64(125);
     let q30 = Quantity::from_u64(30);
 
-    let r = InstrumentRules::new(q25, Price::new(Decimal::from(1))).with_max_quantity(q100);
+    let r = InstrumentRules::new(q25, Price::try_new(Decimal::from(1)).unwrap())
+        .with_max_quantity(q100);
     assert_eq!(r.validate_quantity(q25), Ok(()));
     assert_eq!(r.validate_quantity(q100), Ok(()));
     assert_eq!(
@@ -96,14 +100,8 @@ fn price_must_be_positive_and_on_tick() {
             price: Price::try_new(dec!(0)).unwrap()
         })
     );
-    // The hardened kernel rejects negative `Price` at construction, but raw
-    // tuple / arithmetic escape hatches can still produce one; the rule guard
-    // must refuse it for defense in depth.
-    let negative = Price(dec!(-1.0));
-    assert_eq!(
-        r.validate_price(negative),
-        Err(PriceViolation::NonPositive { price: negative })
-    );
+    // The hardened kernel refuses negative `Price` at construction.
+    assert!(Price::try_new(dec!(-1.0)).is_err());
     assert_eq!(
         r.validate_price(Price::try_new(dec!(100.03)).unwrap()),
         Err(PriceViolation::OffTick {
@@ -123,12 +121,12 @@ fn nan_and_infinite_prices_are_refused() {
 #[test]
 fn price_violation_displays_todays_prose_and_converts_to_market_error() {
     let np = PriceViolation::NonPositive {
-        price: Price::new(dec!(0)),
+        price: Price::try_new(dec!(0)).unwrap(),
     };
     assert_eq!(np.to_string(), "price 0 must be positive");
     let off = PriceViolation::OffTick {
-        price: Price::new(dec!(100.03)),
-        tick: Price::new(dec!(0.05)),
+        price: Price::try_new(dec!(100.03)).unwrap(),
+        tick: Price::try_new(dec!(0.05)).unwrap(),
     };
     assert_eq!(
         off.to_string(),
@@ -142,23 +140,29 @@ fn price_violation_displays_todays_prose_and_converts_to_market_error() {
 
 #[test]
 fn validate_price_tolerance_matches_is_on_tick() {
-    let rules = InstrumentRules::new(Quantity::from_u64(1), Price::new(dec!(0.05)));
+    let rules = InstrumentRules::new(Quantity::from_u64(1), Price::try_new(dec!(0.05)).unwrap());
     for base in [dec!(100.0), dec!(100.05), dec!(2500.5), dec!(0.05)] {
-        assert!(rules.validate_price(Price::new(base)).is_ok());
+        assert!(rules.validate_price(Price::try_new(base).unwrap()).is_ok());
         let off = base + dec!(0.01);
-        assert!(rules.validate_price(Price::new(off)).is_err());
+        assert!(rules.validate_price(Price::try_new(off).unwrap()).is_err());
     }
 }
 
 #[test]
 fn price_band_is_inclusive() {
     let b = PriceBand::new(
-        Price::new(dec!(90.0)),
-        Price::new(dec!(110.0)),
-        Price::new(dec!(100.0)),
+        Price::try_new(dec!(90.0)).unwrap(),
+        Price::try_new(dec!(110.0)).unwrap(),
+        Price::try_new(dec!(100.0)).unwrap(),
     );
-    assert!(b.contains(Price::new(dec!(90.0))) && b.contains(Price::new(dec!(110.0))));
-    assert!(!b.contains(Price::new(dec!(89.99))) && !b.contains(Price::new(dec!(110.01))));
+    assert!(
+        b.contains(Price::try_new(dec!(90.0)).unwrap())
+            && b.contains(Price::try_new(dec!(110.0)).unwrap())
+    );
+    assert!(
+        !b.contains(Price::try_new(dec!(89.99)).unwrap())
+            && !b.contains(Price::try_new(dec!(110.01)).unwrap())
+    );
 }
 
 #[test]

@@ -17,11 +17,11 @@ fn dec(s: &str) -> Decimal {
 
 fn make_bar(open: &str, high: &str, low: &str, close: &str, volume: u64, day_idx: i64) -> Bar {
     Bar {
-        instrument: InstrumentId::new(Exchange::Nse, "X"),
-        open: Price::new(dec(open)),
-        high: Price::new(dec(high)),
-        low: Price::new(dec(low)),
-        close: Price::new(dec(close)),
+        instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+        open: Price::try_new(dec(open)).unwrap(),
+        high: Price::try_new(dec(high)).unwrap(),
+        low: Price::try_new(dec(low)).unwrap(),
+        close: Price::try_new(dec(close)).unwrap(),
         volume: Quantity::from_u64(volume),
         timestamp: Utc.timestamp_opt(day_idx * 86_400, 0).unwrap(),
     }

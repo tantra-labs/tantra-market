@@ -13,16 +13,16 @@ use tantra_market_indicators::{Donchian, DonchianValue, Indicator, Stochastic, W
 const FIXTURE: &str = include_str!("vectors_batch3.json");
 
 fn any_instrument() -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, "X")
+    InstrumentId::try_new(Exchange::Nse, "X").unwrap()
 }
 
 fn bar(h: f64, l: f64, c: f64) -> Bar {
     Bar {
         instrument: any_instrument(),
-        open: Price::new(Decimal::from_f64_retain(c).unwrap_or_default()),
-        high: Price::new(Decimal::from_f64_retain(h).unwrap_or_default()),
-        low: Price::new(Decimal::from_f64_retain(l).unwrap_or_default()),
-        close: Price::new(Decimal::from_f64_retain(c).unwrap_or_default()),
+        open: Price::try_new(Decimal::from_f64_retain(c).unwrap_or_default()).unwrap(),
+        high: Price::try_new(Decimal::from_f64_retain(h).unwrap_or_default()).unwrap(),
+        low: Price::try_new(Decimal::from_f64_retain(l).unwrap_or_default()).unwrap(),
+        close: Price::try_new(Decimal::from_f64_retain(c).unwrap_or_default()).unwrap(),
         volume: Quantity::from_u64(1),
         timestamp: chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("valid ts"),
     }

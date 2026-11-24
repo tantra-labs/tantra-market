@@ -290,7 +290,7 @@ impl InstrumentMaster for CatalogInstrumentMaster {
                 inst.kind() == tantra_core::InstrumentKind::Option
                     && inst
                         .underlying()
-                        .is_some_and(|u| u.eq_ignore_ascii_case(&underlying.symbol))
+                        .is_some_and(|u| u.eq_ignore_ascii_case(underlying.symbol()))
             })
             .collect();
         chain.sort_by(|a, b| {
@@ -447,7 +447,11 @@ fn append_batch(
         let tick_size = tick_sizes[row].ok_or(CatalogError::MissingColumn("tick_size"))?;
         let freeze_qty = freeze_qtys[row].ok_or(CatalogError::MissingColumn("freeze_qty"))?;
         let instrument = Instrument::new(
-            InstrumentId::new(parse_exchange(exchanges.value(row))?, symbols.value(row)),
+            InstrumentId::try_new(parse_exchange(exchanges.value(row))?, symbols.value(row))
+                .map_err(|_| CatalogError::UnknownValue {
+                    column: "symbol",
+                    value: symbols.value(row).to_string(),
+                })?,
             parse_kind(kinds.value(row))?,
             parse_currency(currencies.value(row))?,
             lot_size,

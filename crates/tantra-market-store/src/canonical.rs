@@ -34,11 +34,11 @@ pub fn decimal_from_f64(v: f64) -> Option<Decimal> {
 pub fn bar_to_canonical(bar: &wire::Bar) -> Option<Bar> {
     Some(Bar {
         instrument: bar.bar_type().instrument_id().clone(),
-        open: Price(decimal_from_f64(bar.open())?),
-        high: Price(decimal_from_f64(bar.high())?),
-        low: Price(decimal_from_f64(bar.low())?),
-        close: Price(decimal_from_f64(bar.close())?),
-        volume: Quantity(decimal_from_f64(bar.volume())?),
+        open: Price::try_new(decimal_from_f64(bar.open())?).ok()?,
+        high: Price::try_new(decimal_from_f64(bar.high())?).ok()?,
+        low: Price::try_new(decimal_from_f64(bar.low())?).ok()?,
+        close: Price::try_new(decimal_from_f64(bar.close())?).ok()?,
+        volume: Quantity::try_new(decimal_from_f64(bar.volume())?).ok()?,
         timestamp: bar.ts_event().to_datetime(),
     })
 }
@@ -52,10 +52,10 @@ pub fn bars_to_canonical(bars: &[wire::Bar]) -> Vec<Bar> {
 pub fn quote_to_canonical(q: &QuoteTick) -> Option<Tick> {
     Some(Tick::Quote {
         instrument: q.instrument_id().clone(),
-        bid: Price(decimal_from_f64(q.bid_price())?),
-        ask: Price(decimal_from_f64(q.ask_price())?),
-        bid_qty: Quantity(decimal_from_f64(q.bid_size())?),
-        ask_qty: Quantity(decimal_from_f64(q.ask_size())?),
+        bid: Price::try_new(decimal_from_f64(q.bid_price())?).ok()?,
+        ask: Price::try_new(decimal_from_f64(q.ask_price())?).ok()?,
+        bid_qty: Quantity::try_new(decimal_from_f64(q.bid_size())?).ok()?,
+        ask_qty: Quantity::try_new(decimal_from_f64(q.ask_size())?).ok()?,
         last_price: None,
         exchange_ts: q.ts_event().to_datetime(),
         receive_ts: q.ts_init().to_datetime(),
@@ -67,8 +67,8 @@ pub fn quote_to_canonical(q: &QuoteTick) -> Option<Tick> {
 pub fn trade_to_canonical(t: &TradeTick) -> Option<Tick> {
     Some(Tick::Ltp {
         instrument: t.instrument_id().clone(),
-        price: Price(decimal_from_f64(t.price())?),
-        volume: Quantity(decimal_from_f64(t.size())?),
+        price: Price::try_new(decimal_from_f64(t.price())?).ok()?,
+        volume: Quantity::try_new(decimal_from_f64(t.size())?).ok()?,
         exchange_ts: t.ts_event().to_datetime(),
         receive_ts: t.ts_init().to_datetime(),
     })

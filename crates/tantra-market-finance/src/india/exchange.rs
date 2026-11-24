@@ -110,5 +110,5 @@ pub fn resolve_instrument(
         (Some(e), _) | (None, Some(e)) => e,
         (None, None) => IndiaExchange::Nse,
     };
-    Ok(InstrumentId::new(exchange.into(), symbol))
+    InstrumentId::try_new(exchange.into(), symbol).map_err(|_| invalid())
 }

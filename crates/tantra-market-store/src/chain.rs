@@ -87,8 +87,8 @@ impl ChainReader for InstrumentChainReader {
                 })?;
             let (bid, ask) = match quote {
                 Some(tick) => (
-                    Some(tantra_core::Price::new(to_decimal(tick.bid_price()))),
-                    Some(tantra_core::Price::new(to_decimal(tick.ask_price()))),
+                    tantra_core::Price::try_new(to_decimal(tick.bid_price())).ok(),
+                    tantra_core::Price::try_new(to_decimal(tick.ask_price())).ok(),
                 ),
                 None => (None, None),
             };
@@ -108,9 +108,13 @@ impl ChainReader for InstrumentChainReader {
             contracts.push(ChainContract {
                 instrument: instrument.id().clone(),
                 option_type,
-                strike: tantra_core::Price::new(to_decimal(strike)),
+                strike: tantra_core::Price::try_new(to_decimal(strike)).map_err(|e| {
+                    PortError::Internal(format!("invalid strike for {}: {e}", instrument.id()))
+                })?,
                 expiry: expiry_date,
-                lot_size: Quantity::new(to_decimal(instrument.lot_size())),
+                lot_size: Quantity::try_new(to_decimal(instrument.lot_size())).map_err(|e| {
+                    PortError::Internal(format!("invalid lot size for {}: {e}", instrument.id()))
+                })?,
                 last_price: None,
                 bid,
                 ask,

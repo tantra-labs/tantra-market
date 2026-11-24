@@ -68,11 +68,11 @@ struct SessionRange {
 ///
 /// fn bar(open: f64, high: f64, low: f64, close: f64) -> Bar {
 ///     Bar {
-///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from_f64_retain(open).unwrap()),
-///         high: Price::new(Decimal::from_f64_retain(high).unwrap()),
-///         low: Price::new(Decimal::from_f64_retain(low).unwrap()),
-///         close: Price::new(Decimal::from_f64_retain(close).unwrap()),
+///         instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+///         open: Price::try_new(Decimal::from_f64_retain(open).unwrap()).unwrap(),
+///         high: Price::try_new(Decimal::from_f64_retain(high).unwrap()).unwrap(),
+///         low: Price::try_new(Decimal::from_f64_retain(low).unwrap()).unwrap(),
+///         close: Price::try_new(Decimal::from_f64_retain(close).unwrap()).unwrap(),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
@@ -164,12 +164,12 @@ impl ElephantZones {
                 }
             }
             self.session_date = Some(date);
-            self.session_open = Some(bar.open.0);
-            self.session_high = bar.high.0;
-            self.session_low = bar.low.0;
+            self.session_open = Some(bar.open.value());
+            self.session_high = bar.high.value();
+            self.session_low = bar.low.value();
         } else {
-            self.session_high = self.session_high.max(bar.high.0);
-            self.session_low = self.session_low.min(bar.low.0);
+            self.session_high = self.session_high.max(bar.high.value());
+            self.session_low = self.session_low.min(bar.low.value());
         }
 
         // Output only once enough sessions are primed.
@@ -196,8 +196,8 @@ impl ElephantZones {
         if self.session_date != Some(date) {
             // New session: the first bar is the opening candle.
             self.session_date = Some(date);
-            self.ore_ext = Some(bar.high.0 - bar.low.0);
-            self.session_open = Some(bar.close.0); // anchor = first-candle close
+            self.ore_ext = Some(bar.high.value() - bar.low.value());
+            self.session_open = Some(bar.close.value()); // anchor = first-candle close
             return None;
         }
         // Emit from the second bar of the session onward.

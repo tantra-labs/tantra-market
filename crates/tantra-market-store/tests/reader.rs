@@ -88,7 +88,7 @@ async fn bars_are_read_back_from_parquet_with_the_requested_range() {
     let dir = fixture("bars");
     let reader = DatasetReader::from_parquet_dir(&dir.0).unwrap();
     let spec = BarSpecification::new(1, BarAggregation::Minute, PriceType::Last);
-    let id = InstrumentId::new(Exchange::Nse, "TCS");
+    let id = InstrumentId::try_new(Exchange::Nse, "TCS").unwrap();
     let req = BarRequest::new(id, spec, Some(UnixNanos::from_u64(20)), None).unwrap();
     let bars = reader.read_bars(&req).await.unwrap();
     let stamps: Vec<u64> = bars.iter().map(|b| b.ts_event().as_u64()).collect();
@@ -129,7 +129,7 @@ fn a_corrupt_file_is_a_dataset_error() {
 async fn quotes_and_depth_are_served_from_a_parquet_directory() {
     let dir = fixture("quotes");
     let reader = DatasetReader::from_parquet_dir(&dir.0).unwrap();
-    let id = InstrumentId::new(Exchange::Nse, "TCS");
+    let id = InstrumentId::try_new(Exchange::Nse, "TCS").unwrap();
     let quote = reader.read_quote(&id, None).await.unwrap().unwrap();
     assert_eq!(quote.bid_price(), 102.0);
     assert_eq!(quote.ts_event(), UnixNanos::from_u64(30));

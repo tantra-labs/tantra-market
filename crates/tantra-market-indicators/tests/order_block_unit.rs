@@ -15,11 +15,11 @@ fn dec(s: &str) -> Decimal {
 /// A bar at an explicit timestamp (04:00 UTC, minute 0).
 fn bar(open: i32, high: i32, low: i32, close: i32) -> Bar {
     Bar {
-        instrument: InstrumentId::new(Exchange::Nse, "X"),
-        open: Price::new(Decimal::from(open)),
-        high: Price::new(Decimal::from(high)),
-        low: Price::new(Decimal::from(low)),
-        close: Price::new(Decimal::from(close)),
+        instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+        open: Price::try_new(Decimal::from(open)).unwrap(),
+        high: Price::try_new(Decimal::from(high)).unwrap(),
+        low: Price::try_new(Decimal::from(low)).unwrap(),
+        close: Price::try_new(Decimal::from(close)).unwrap(),
         volume: Quantity::from_u64(1),
         timestamp: Utc.with_ymd_and_hms(2026, 1, 5, 4, 0, 0).single().unwrap(),
     }

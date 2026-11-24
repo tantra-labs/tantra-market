@@ -149,8 +149,8 @@ impl BuildupReader for BuildupAnalyzer {
         if oi_series.len() < 2 || bars.len() < 2 {
             return Ok(None);
         }
-        let oi_delta =
-            oi_series.last().unwrap().open_interest.0 - oi_series.first().unwrap().open_interest.0;
+        let oi_delta = oi_series.last().unwrap().open_interest.value()
+            - oi_series.first().unwrap().open_interest.value();
         let price_delta =
             Decimal::from_f64_retain(bars.last().unwrap().close() - bars.first().unwrap().close())
                 .unwrap_or(Decimal::ZERO);

@@ -54,8 +54,8 @@ fn zerodha_csv_payload_populates_token_symbol_and_lot_lookup() {
     assert_eq!(master.len(), 2);
 
     let infy = master.by_token("408065").expect("token index").clone();
-    assert_eq!(infy.symbol, "INFY");
-    assert_eq!(infy.exchange, Exchange::Nse);
+    assert_eq!(infy.symbol(), "INFY");
+    assert_eq!(infy.exchange(), Exchange::Nse);
 
     assert_eq!(master.by_symbol("INFY"), Some(&infy));
 
@@ -79,7 +79,7 @@ fn upstox_json_payload_populates_lot_size_and_symbol() {
     assert_eq!(count, 1);
 
     let ongc = master.by_token("2048065").expect("token").clone();
-    assert_eq!(ongc.symbol, "ONGC");
+    assert_eq!(ongc.symbol(), "ONGC");
     let entry = master.entry(&ongc).unwrap();
     assert_eq!(entry.lot_size, Some(75));
     assert_eq!(master.resolve_tick_size(&ongc).unwrap().value(), d("0.05"));
@@ -94,7 +94,7 @@ fn nse_equity_csv_payload_maps_isin_and_series() {
     assert_eq!(count, 2, "both non-empty SYMBOL rows are imported");
 
     let reliance = master.by_isin("INE002A01018").expect("ISIN index").clone();
-    assert_eq!(reliance.symbol, "RELIANCE");
+    assert_eq!(reliance.symbol(), "RELIANCE");
 
     let be_entry = master.by_isin("INE999A01019").expect("BE ISIN").clone();
     let entry: &InstrumentMasterEntry = master.entry(&be_entry).unwrap();
@@ -112,10 +112,7 @@ fn master_export_import_round_trips_every_entry() {
     let mut restored = InstrumentMaster::new();
     restored.import_master(&exported);
     assert_eq!(restored.len(), 2);
-    assert_eq!(
-        restored.by_token("11536").map(|i| i.symbol.clone()),
-        Some("TCS".to_string())
-    );
+    assert_eq!(restored.by_token("11536").map(|i| i.symbol()), Some("TCS"));
     assert_eq!(restored.export_master().len(), master.export_master().len());
 }
 

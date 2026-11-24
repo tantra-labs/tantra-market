@@ -136,7 +136,7 @@ pub async fn packet_to_tick(
         let mapper = mapper.read().await;
         mapper.to_canonical(&packet.token.to_string())?
     };
-    let exchange = instrument.exchange;
+    let exchange = instrument.exchange();
     let now = received_at;
     match decoded {
         FeedPacket::Ltp { last_price, .. } => Some(Tick::Ltp {
@@ -202,12 +202,12 @@ fn to_price(paise: i32, exchange: Exchange) -> Price {
     } else {
         Decimal::from(100)
     };
-    Price::new(Decimal::from(paise) / divisor)
+    Price::try_new((Decimal::from(paise) / divisor).max(Decimal::ZERO)).unwrap_or(Price::ZERO)
 }
 
 /// Converts an integral quantity into an exact `Decimal` `Quantity`.
 fn to_quantity(value: i32) -> Quantity {
-    Quantity::new(Decimal::from(value))
+    Quantity::try_new(Decimal::from(value).max(Decimal::ZERO)).unwrap_or(Quantity::ZERO)
 }
 
 /// Converts a unix-epoch seconds value into a UTC instant (epoch when absent).
@@ -312,7 +312,7 @@ impl MarketDataFeed for KiteFeed {
             .map(|instrument| {
                 (
                     "i".to_string(),
-                    format!("{}:{}", instrument.exchange.as_str(), instrument.symbol),
+                    format!("{}:{}", instrument.exchange().as_str(), instrument.symbol()),
                 )
             })
             .collect();
@@ -356,9 +356,14 @@ impl MarketDataFeed for KiteFeed {
             let Some(instrument) = mapper.to_canonical(&token.to_string()) else {
                 continue;
             };
+            let Some(price) =
+                Decimal::from_f64_retain(last_price).and_then(|d| Price::try_new(d).ok())
+            else {
+                continue;
+            };
             ticks.push(Tick::Ltp {
                 instrument,
-                price: Price::new(Decimal::from_f64_retain(last_price).unwrap_or(Decimal::ZERO)),
+                price,
                 volume: Quantity::ZERO,
                 exchange_ts: now,
                 receive_ts: now,
@@ -384,7 +389,7 @@ impl KiteFeed {
     /// The Kite instrument token for a canonical instrument: the attached broker token,
     /// else a registered symbol-mapper key.
     async fn kite_token(&self, instrument: InstrumentId) -> Result<u32, MdError> {
-        if let Some(token) = &instrument.token
+        if let Some(token) = instrument.token()
             && let Ok(token) = token.parse::<u32>()
         {
             return Ok(token);

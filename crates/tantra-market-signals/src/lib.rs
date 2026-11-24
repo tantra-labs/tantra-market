@@ -17,16 +17,16 @@
 //! use tantra_market_signals::{catalog::SignalHorizon, signals_for_horizon};
 //! use rust_decimal::Decimal;
 //!
-//! let id = InstrumentId::new(Exchange::Nse, "X");
+//! let id = InstrumentId::try_new(Exchange::Nse, "X").unwrap();
 //! let bars: Vec<Bar> = (0..120)
 //!     .map(|i| {
-//!         let px = Price::new(Decimal::from(100 + i));
+//!         let px = Price::try_new(Decimal::from(100 + i)).unwrap();
 //!         let ts = chrono::DateTime::from_timestamp_nanos((i as i64) * 86_400_000_000_000);
 //!         Bar {
 //!             instrument: id.clone(),
 //!             open: px,
-//!             high: Price::new(Decimal::from(101 + i)),
-//!             low: Price::new(Decimal::from(99 + i)),
+//!             high: Price::try_new(Decimal::from(101 + i)).unwrap(),
+//!             low: Price::try_new(Decimal::from(99 + i)).unwrap(),
 //!             close: px,
 //!             volume: Quantity::from_u64(1_000),
 //!             timestamp: ts,

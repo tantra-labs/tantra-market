@@ -58,10 +58,10 @@ impl Indicator for Vwap {
     type Output = Decimal;
 
     fn update(&mut self, bar: &Bar) -> Option<Decimal> {
-        let high = bar.high.0;
-        let low = bar.low.0;
-        let close = bar.close.0;
-        let volume = bar.volume.0;
+        let high = bar.high.value();
+        let low = bar.low.value();
+        let close = bar.close.value();
+        let volume = bar.volume.value();
 
         let three = Decimal::from(3);
         let typical_price = (high + low + close) / three;

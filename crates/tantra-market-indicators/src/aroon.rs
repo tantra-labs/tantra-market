@@ -98,7 +98,7 @@ impl Indicator for Aroon {
     type Output = AroonValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<AroonValue> {
-        self.update_hl(bar.high.0, bar.low.0)
+        self.update_hl(bar.high.value(), bar.low.value())
     }
 
     fn value(&self) -> Option<AroonValue> {

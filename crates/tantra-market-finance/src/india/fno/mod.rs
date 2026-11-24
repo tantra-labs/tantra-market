@@ -228,7 +228,8 @@ impl FnoContract {
         let _ = expiry_date;
         let _ = lot_size;
         let _ = tick_size;
-        InstrumentId::new(exchange, symbol)
+        InstrumentId::try_new(exchange, symbol)
+            .expect("FnoContract::format_symbol produces valid symbol")
     }
 }
 
@@ -339,10 +340,10 @@ pub fn parse_expiry_token(token: &str) -> Result<FnoExpiry, FnoParseError> {
 }
 
 fn format_strike(strike: Price) -> String {
-    if strike.0.fract() == Decimal::ZERO {
-        format!("{}", strike.0)
+    if strike.value().fract() == Decimal::ZERO {
+        format!("{}", strike.value())
     } else {
-        let s = format!("{:.4}", strike.0);
+        let s = format!("{:.4}", strike.value());
         let s = s.trim_end_matches('0');
         let s = s.trim_end_matches('.');
         s.to_string()

@@ -75,7 +75,7 @@ fn write_bars(path: &Path, timestamps: &[u64], closes: &[f64]) {
 }
 
 fn instrument(symbol: &str) -> InstrumentId {
-    InstrumentId::new(Exchange::Nse, symbol)
+    InstrumentId::try_new(Exchange::Nse, symbol).unwrap()
 }
 
 fn default_spec() -> BarSpecification {
@@ -90,7 +90,7 @@ fn replayed_bars(feed: &mut DatasetFeed) -> Vec<(String, u64)> {
             _ => panic!("the feed replays bars"),
         };
         replayed.push((
-            bar.bar_type().instrument_id().symbol.to_string(),
+            bar.bar_type().instrument_id().symbol().to_string(),
             bar.ts_event().as_u64(),
         ));
     }

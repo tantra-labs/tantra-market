@@ -83,7 +83,7 @@ impl Indicator for AdrPct {
     type Output = Decimal;
 
     fn update(&mut self, bar: &Bar) -> Option<Decimal> {
-        self.update_hl(bar.high.0, bar.low.0)
+        self.update_hl(bar.high.value(), bar.low.value())
     }
 
     fn value(&self) -> Option<Decimal> {

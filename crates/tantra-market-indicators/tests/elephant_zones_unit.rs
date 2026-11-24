@@ -22,11 +22,11 @@ fn bar(open: Decimal, high: Decimal, low: Decimal, close: Decimal, day: u32, min
         .unwrap()
         + chrono::Duration::minutes(minute as i64);
     Bar {
-        instrument: InstrumentId::new(Exchange::Nse, "X"),
-        open: Price::new(open),
-        high: Price::new(high),
-        low: Price::new(low),
-        close: Price::new(close),
+        instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+        open: Price::try_new(open).unwrap(),
+        high: Price::try_new(high).unwrap(),
+        low: Price::try_new(low).unwrap(),
+        close: Price::try_new(close).unwrap(),
         volume: Quantity::from_u64(1),
         timestamp,
     }

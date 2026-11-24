@@ -137,11 +137,11 @@ fn option_rows() -> Vec<OptRow> {
 }
 
 fn nifty() -> InstrumentId {
-    InstrumentId::new(Exchange::Nfo, "NIFTY")
+    InstrumentId::try_new(Exchange::Nfo, "NIFTY").unwrap()
 }
 
 fn contract(symbol: &str) -> InstrumentId {
-    InstrumentId::new(Exchange::Nfo, symbol)
+    InstrumentId::try_new(Exchange::Nfo, symbol).unwrap()
 }
 
 // ——————————————————————————————————————————————————————————————————————————
@@ -155,7 +155,7 @@ async fn list_chain_filters_underlying_and_orders_by_expiry_then_strike_then_typ
     let master = CatalogInstrumentMaster::open(&dir.0).unwrap();
 
     let chain = master.list_chain(&nifty(), None).await.unwrap();
-    let symbols: Vec<&str> = chain.iter().map(|i| i.id().symbol.as_str()).collect();
+    let symbols: Vec<&str> = chain.iter().map(|i| i.id().symbol()).collect();
     assert_eq!(
         symbols,
         vec![
@@ -178,7 +178,7 @@ async fn list_chain_as_of_excludes_expired_contracts() {
 
     let as_of = NaiveDate::from_ymd_opt(2024, 11, 15).unwrap();
     let chain = master.list_chain(&nifty(), Some(as_of)).await.unwrap();
-    let symbols: Vec<&str> = chain.iter().map(|i| i.id().symbol.as_str()).collect();
+    let symbols: Vec<&str> = chain.iter().map(|i| i.id().symbol()).collect();
     assert_eq!(symbols, vec!["NIFTY24NOV24000CE"]);
 }
 
@@ -248,7 +248,7 @@ async fn chain_reader_joins_quotes_and_oi_and_applies_filters() {
     oi.put(OpenInterestSnapshot {
         instrument: contract("NIFTY24OCT24000CE"),
         as_of: NaiveDate::from_ymd_opt(2024, 10, 1).unwrap(),
-        open_interest: Quantity::new(Decimal::from(1_250_000)),
+        open_interest: Quantity::try_new(Decimal::from(1_250_000)).unwrap(),
     })
     .await
     .unwrap();
@@ -262,15 +262,15 @@ async fn chain_reader_joins_quotes_and_oi_and_applies_filters() {
     assert_eq!(chain[0].instrument, contract("NIFTY24OCT24000CE"));
     assert_eq!(
         chain[0].bid,
-        Some(tantra_core::Price::new(Decimal::from(235)))
+        Some(tantra_core::Price::try_new(Decimal::from(235)).unwrap())
     );
     assert_eq!(
         chain[0].ask,
-        Some(tantra_core::Price::new(Decimal::from(236)))
+        Some(tantra_core::Price::try_new(Decimal::from(236)).unwrap())
     );
     assert_eq!(
         chain[0].open_interest,
-        Some(Quantity::new(Decimal::from(1_250_000)))
+        Some(Quantity::try_new(Decimal::from(1_250_000)).unwrap())
     );
     assert_eq!(
         chain[1].open_interest, None,
@@ -280,7 +280,10 @@ async fn chain_reader_joins_quotes_and_oi_and_applies_filters() {
         chain[0].expiry,
         NaiveDate::from_ymd_opt(2024, 10, 31).unwrap()
     );
-    assert_eq!(chain[0].lot_size, Quantity::new(Decimal::from(25)));
+    assert_eq!(
+        chain[0].lot_size,
+        Quantity::try_new(Decimal::from(25)).unwrap()
+    );
     assert_eq!(chain[0].option_type, OptionType::Call);
 
     // Expiry filter keeps only the November contract.
@@ -327,7 +330,7 @@ async fn in_memory_oi_store_history_and_latest() {
             .put(OpenInterestSnapshot {
                 instrument: inst.clone(),
                 as_of: d(2024, 10, day),
-                open_interest: Quantity::new(Decimal::from(oi)),
+                open_interest: Quantity::try_new(Decimal::from(oi)).unwrap(),
             })
             .await
             .unwrap();
@@ -337,7 +340,7 @@ async fn in_memory_oi_store_history_and_latest() {
         .put(OpenInterestSnapshot {
             instrument: inst.clone(),
             as_of: d(2024, 10, 3),
-            open_interest: Quantity::new(Decimal::from(950)),
+            open_interest: Quantity::try_new(Decimal::from(950)).unwrap(),
         })
         .await
         .unwrap();
@@ -348,7 +351,7 @@ async fn in_memory_oi_store_history_and_latest() {
         .unwrap();
     let values: Vec<i64> = history
         .iter()
-        .map(|s| s.open_interest.0.to_i64().unwrap())
+        .map(|s| s.open_interest.value().to_i64().unwrap())
         .collect();
     assert_eq!(values, vec![1100, 950]);
 
@@ -357,10 +360,10 @@ async fn in_memory_oi_store_history_and_latest() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(latest.open_interest.0.to_i64().unwrap(), 1100);
+    assert_eq!(latest.open_interest.value().to_i64().unwrap(), 1100);
     let overall = store.latest(&inst, None).await.unwrap().unwrap();
     assert_eq!(overall.as_of, d(2024, 10, 3));
-    assert_eq!(overall.open_interest.0.to_i64().unwrap(), 950);
+    assert_eq!(overall.open_interest.value().to_i64().unwrap(), 950);
     assert!(
         store
             .latest(&contract("OTHER"), None)
@@ -383,12 +386,12 @@ async fn parquet_oi_store_round_trips_exact_quantities() {
             OpenInterestSnapshot {
                 instrument: inst.clone(),
                 as_of: date,
-                open_interest: Quantity::new("1250000".parse::<Decimal>().unwrap()),
+                open_interest: Quantity::try_new("1250000".parse::<Decimal>().unwrap()).unwrap(),
             },
             OpenInterestSnapshot {
                 instrument: other.clone(),
                 as_of: date,
-                open_interest: Quantity::new("875000.25".parse::<Decimal>().unwrap()),
+                open_interest: Quantity::try_new("875000.25".parse::<Decimal>().unwrap()).unwrap(),
             },
         ],
     )
@@ -397,13 +400,13 @@ async fn parquet_oi_store_round_trips_exact_quantities() {
     let store = ParquetOpenInterestStore::open(&dir.0).unwrap();
     let inst_latest = store.latest(&inst, None).await.unwrap().unwrap();
     assert_eq!(
-        inst_latest.open_interest.0,
+        inst_latest.open_interest.value(),
         Decimal::from(1_250_000),
         "exact decimal survives the Parquet round trip (scale may differ, value must not)"
     );
     let other_latest = store.latest(&other, None).await.unwrap().unwrap();
     assert_eq!(
-        other_latest.open_interest.0,
+        other_latest.open_interest.value(),
         "875000.25".parse::<Decimal>().unwrap()
     );
 }
@@ -456,7 +459,7 @@ impl BarReader for FakeBarReader {
 
 fn daily_bar(symbol: &str, date: NaiveDate, close: f64) -> Bar {
     let bar_type = BarType::new(
-        InstrumentId::new(Exchange::Nfo, symbol),
+        InstrumentId::try_new(Exchange::Nfo, symbol).unwrap(),
         tantra_market_store::wire::BarSpecification::new(
             1,
             tantra_market_store::wire::BarAggregation::Day,
@@ -483,14 +486,14 @@ async fn analyzer_classifies_price_up_oi_up_as_long_buildup() {
     oi.put(OpenInterestSnapshot {
         instrument: inst.clone(),
         as_of: d(1),
-        open_interest: Quantity::new(Decimal::from(1000)),
+        open_interest: Quantity::try_new(Decimal::from(1000)).unwrap(),
     })
     .await
     .unwrap();
     oi.put(OpenInterestSnapshot {
         instrument: inst.clone(),
         as_of: d(5),
-        open_interest: Quantity::new(Decimal::from(1200)),
+        open_interest: Quantity::try_new(Decimal::from(1200)).unwrap(),
     })
     .await
     .unwrap();
@@ -516,7 +519,7 @@ async fn analyzer_returns_none_when_window_has_too_few_points() {
     oi.put(OpenInterestSnapshot {
         instrument: inst.clone(),
         as_of: d(1),
-        open_interest: Quantity::new(Decimal::from(1000)),
+        open_interest: Quantity::try_new(Decimal::from(1000)).unwrap(),
     })
     .await
     .unwrap();

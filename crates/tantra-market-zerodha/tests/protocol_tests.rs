@@ -267,7 +267,9 @@ fn request_json_shapes_match_kite() {
 async fn packets_convert_to_canonical_ticks() {
     let modes = Arc::new(RwLock::new(std::collections::HashMap::new()));
     let mapper = Arc::new(RwLock::new(SymbolMapper::new()));
-    let instrument = InstrumentId::new(Exchange::Nse, "INFY").with_token("408065".to_string());
+    let instrument = InstrumentId::try_new(Exchange::Nse, "INFY")
+        .unwrap()
+        .with_token("408065".to_string());
     {
         let mut m = mapper.write().await;
         m.register("408065".to_string(), instrument.clone());
@@ -288,14 +290,16 @@ async fn packets_convert_to_canonical_ticks() {
             assert_eq!(got, instrument);
             assert_eq!(
                 price,
-                Price::new(Decimal::from(141_295) / Decimal::from(100))
+                Price::try_new(Decimal::from(141_295) / Decimal::from(100)).unwrap()
             );
         }
         other => panic!("expected Ltp tick, got {other:?}"),
     }
 
     // Currency instruments divide by 10^7 instead of 100.
-    let usdinr = InstrumentId::new(Exchange::Cds, "USDINR26NOVFUT").with_token("7".to_string());
+    let usdinr = InstrumentId::try_new(Exchange::Cds, "USDINR26NOVFUT")
+        .unwrap()
+        .with_token("7".to_string());
     {
         let mut m = mapper.write().await;
         m.register("7".to_string(), usdinr.clone());

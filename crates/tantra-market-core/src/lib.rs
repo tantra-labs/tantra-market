@@ -157,23 +157,23 @@ impl SymbolMapper {
         // Pattern 1: INFY$NSE
         if let Some((sym, exch)) = s.split_once('$') {
             let exchange = exch.parse().ok()?;
-            return Some(InstrumentId::new(exchange, sym));
+            return InstrumentId::try_new(exchange, sym).ok();
         }
 
         // Pattern 2: NSE:INFY-EQ or NSE:INFY
         if let Some((exch, sym_part)) = s.split_once(':') {
             let exchange = exch.parse().ok()?;
             let sym = sym_part.trim_end_matches("-EQ");
-            return Some(InstrumentId::new(exchange, sym));
+            return InstrumentId::try_new(exchange, sym).ok();
         }
 
         // Pattern 3: NSE_EQ|INE009A01021
         if let Some((exch_part, token_or_sym)) = s.split_once('|') {
             let exch = exch_part.split('_').next()?;
             let exchange = exch.parse().ok()?;
-            return Some(
-                InstrumentId::new(exchange, token_or_sym).with_token(token_or_sym.to_string()),
-            );
+            return InstrumentId::try_new(exchange, token_or_sym)
+                .ok()
+                .map(|id| id.with_token(token_or_sym.to_string()));
         }
 
         None
@@ -389,7 +389,8 @@ impl MarketDataEnricher {
             Tick::Quote {
                 bid, ask, bid_qty, ..
             } => {
-                let mid = Price((bid.0 + ask.0) / Decimal::from(2));
+                let mid = Price::try_new((bid.value() + ask.value()) / Decimal::from(2))
+                    .unwrap_or(Price::ZERO);
                 let vol = *bid_qty;
                 (mid, vol)
             }
@@ -402,18 +403,19 @@ impl MarketDataEnricher {
             }
         };
 
-        if volume.0 > Decimal::ZERO {
+        if volume.value() > Decimal::ZERO {
             let state = self.vwap_state.entry(inst).or_default();
-            state.0 = Price(state.0.0 + price.0 * volume.0);
-            state.1 = Quantity(state.1.0 + volume.0);
+            state.0 =
+                Price::try_new(state.0.value() + price.value() * volume.value()).unwrap_or(state.0);
+            state.1 = Quantity::try_new(state.1.value() + volume.value()).unwrap_or(state.1);
         }
     }
 
     /// Get the current VWAP for a scrip, if any data has been seen.
     pub fn vwap(&self, instrument: &InstrumentId) -> Option<Price> {
         self.vwap_state.get(instrument).and_then(|(pv, v)| {
-            if v.0 > Decimal::ZERO {
-                Some(Price(pv.0 / v.0))
+            if v.value() > Decimal::ZERO {
+                Price::try_new(pv.value() / v.value()).ok()
             } else {
                 None
             }

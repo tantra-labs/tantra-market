@@ -78,11 +78,11 @@ impl Series {
         let mut atr_ind = Atr::new(params.rsi_period);
 
         for bar in bars {
-            let c_dec = bar.close.0;
-            let v_dec = bar.volume.0;
-            open.push(bar.open.0.to_f64().unwrap_or(0.0));
-            high.push(bar.high.0.to_f64().unwrap_or(0.0));
-            low.push(bar.low.0.to_f64().unwrap_or(0.0));
+            let c_dec = bar.close.value();
+            let v_dec = bar.volume.value();
+            open.push(bar.open.value().to_f64().unwrap_or(0.0));
+            high.push(bar.high.value().to_f64().unwrap_or(0.0));
+            low.push(bar.low.value().to_f64().unwrap_or(0.0));
             close.push(c_dec.to_f64().unwrap_or(0.0));
             volume.push(v_dec.to_f64().unwrap_or(0.0));
             days.push(bar.timestamp.timestamp_millis() / 86_400_000);

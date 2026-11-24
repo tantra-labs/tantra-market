@@ -120,7 +120,7 @@ impl Indicator for Vortex {
     type Output = VortexValue;
 
     fn update(&mut self, bar: &tantra_core::Bar) -> Option<VortexValue> {
-        self.update_hlc(bar.high.0, bar.low.0, bar.close.0)
+        self.update_hlc(bar.high.value(), bar.low.value(), bar.close.value())
     }
 
     fn value(&self) -> Option<VortexValue> {

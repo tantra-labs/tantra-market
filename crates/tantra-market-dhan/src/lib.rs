@@ -155,8 +155,8 @@ impl DhanFeed {
     /// The Dhan security id for an instrument: the broker token when attached, else the
     /// registered symbol-mapper key's token, else an error.
     async fn security_id(&self, instrument: &InstrumentId) -> Result<String, MdError> {
-        if let Some(token) = &instrument.token {
-            return Ok(token.clone());
+        if let Some(token) = instrument.token() {
+            return Ok(token.to_string());
         }
         if let Some(key) = self.mapper.read().await.to_broker_key(instrument) {
             if let Some((_, token)) = key.split_once('|') {
@@ -256,12 +256,17 @@ async fn resolve_instrument(
 
 /// Rounds an `f32`-sourced price into an exact `Decimal` `Price` at the adapter boundary.
 fn to_price(value: f64) -> Price {
-    Price::new(Decimal::from_f64_retain(value).unwrap_or(Decimal::ZERO))
+    Price::try_new(
+        Decimal::from_f64_retain(value)
+            .unwrap_or(Decimal::ZERO)
+            .max(Decimal::ZERO),
+    )
+    .unwrap_or(Price::ZERO)
 }
 
 /// Converts an integral quantity into an exact `Decimal` `Quantity`.
 fn to_quantity(value: i64) -> Quantity {
-    Quantity::new(Decimal::from(value))
+    Quantity::try_new(Decimal::from(value).max(Decimal::ZERO)).unwrap_or(Quantity::ZERO)
 }
 
 /// Converts a unix-epoch seconds value into a UTC instant (epoch when absent).
@@ -287,7 +292,7 @@ impl MarketDataFeed for DhanFeed {
         // Group by mode; each mode maps to its own subscribe request code.
         let mut by_mode: Vec<(Mode, Vec<DhanInstrument>)> = Vec::new();
         for sub in subs {
-            let segment = Self::exchange_segment(sub.instrument.exchange)?;
+            let segment = Self::exchange_segment(sub.instrument.exchange())?;
             let security_id = self.security_id(&sub.instrument).await?;
             {
                 let mut mapper = self.mapper.write().await;
@@ -341,7 +346,7 @@ impl MarketDataFeed for DhanFeed {
             let Some(subscription) = active else {
                 continue;
             };
-            let segment = Self::exchange_segment(subscription.instrument.exchange)?;
+            let segment = Self::exchange_segment(subscription.instrument.exchange())?;
             let security_id = self.security_id(&subscription.instrument).await?;
             let json = subscribe_json(
                 Self::unsubscribe_request_code(subscription.mode),
@@ -366,7 +371,7 @@ impl MarketDataFeed for DhanFeed {
         let mut body: std::collections::BTreeMap<String, Vec<String>> =
             std::collections::BTreeMap::new();
         for instrument in instruments {
-            let segment = Self::exchange_segment(instrument.exchange)?;
+            let segment = Self::exchange_segment(instrument.exchange())?;
             let security_id = self.security_id(instrument).await?;
             body.entry(segment.name().to_string())
                 .or_default()

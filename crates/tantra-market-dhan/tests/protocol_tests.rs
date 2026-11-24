@@ -243,8 +243,9 @@ fn disconnect_json_is_the_documented_message() {
 #[tokio::test]
 async fn packets_convert_to_canonical_ticks_through_the_mapper() {
     let mapper = Arc::new(RwLock::new(SymbolMapper::new()));
-    let instrument =
-        InstrumentId::new(Exchange::Nfo, "NIFTY26NOV24000CE").with_token("49081".to_string());
+    let instrument = InstrumentId::try_new(Exchange::Nfo, "NIFTY26NOV24000CE")
+        .unwrap()
+        .with_token("49081".to_string());
     {
         let mut m = mapper.write().await;
         m.register("2|49081".to_string(), instrument.clone());
@@ -270,7 +271,10 @@ async fn packets_convert_to_canonical_ticks_through_the_mapper() {
             ..
         } => {
             assert_eq!(got, instrument);
-            assert_eq!(price, Price::new(Decimal::from_f64_retain(100.5).unwrap()));
+            assert_eq!(
+                price,
+                Price::try_new(Decimal::from_f64_retain(100.5).unwrap()).unwrap()
+            );
             assert_eq!(volume, Quantity::ZERO);
         }
         other => panic!("expected Ltp tick, got {other:?}"),
@@ -298,8 +302,11 @@ async fn packets_convert_to_canonical_ticks_through_the_mapper() {
     .expect("quote maps to a tick");
     match tick {
         Tick::Ltp { volume, price, .. } => {
-            assert_eq!(volume, Quantity::new(Decimal::from(12_345)));
-            assert_eq!(price, Price::new(Decimal::from_f64_retain(100.5).unwrap()));
+            assert_eq!(volume, Quantity::try_new(Decimal::from(12_345)).unwrap());
+            assert_eq!(
+                price,
+                Price::try_new(Decimal::from_f64_retain(100.5).unwrap()).unwrap()
+            );
         }
         other => panic!("expected Ltp tick, got {other:?}"),
     }

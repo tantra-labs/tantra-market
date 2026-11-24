@@ -30,11 +30,11 @@ pub struct DonchianValue {
 ///
 /// fn bar(h: i64, l: i64) -> Bar {
 ///     Bar {
-///         instrument: InstrumentId::new(Exchange::Nse, "X"),
-///         open: Price::new(Decimal::from(l)),
-///         high: Price::new(Decimal::from(h)),
-///         low: Price::new(Decimal::from(l)),
-///         close: Price::new(Decimal::from(l)),
+///         instrument: InstrumentId::try_new(Exchange::Nse, "X").unwrap(),
+///         open: Price::try_new(Decimal::from(l)).unwrap(),
+///         high: Price::try_new(Decimal::from(h)).unwrap(),
+///         low: Price::try_new(Decimal::from(l)).unwrap(),
+///         close: Price::try_new(Decimal::from(l)).unwrap(),
 ///         volume: Quantity::from_u64(1),
 ///         timestamp: chrono::Utc::now(),
 ///     }
@@ -125,7 +125,7 @@ impl Indicator for Donchian {
     type Output = DonchianValue;
 
     fn update(&mut self, bar: &Bar) -> Option<DonchianValue> {
-        self.push(bar.high.0, bar.low.0)
+        self.push(bar.high.value(), bar.low.value())
     }
 
     fn value(&self) -> Option<DonchianValue> {
