@@ -3,7 +3,7 @@
 **Status**: Proposed
 
 Roadmap: root [plan 0008](../../../docs/plans/0008-trade-signal-generator.md) §3 (pattern-driven
-trade plans). Wire type: [`tantra-core` plan 0005](../../../tantra-core/docs/plans/0005-trade-planner-and-manager.md) §2a (`ChartPattern`).
+trade plans). Wire type: [`tantra-core` plan 0005](../../../tantra-core/docs/plans/README.md#implemented-plans) §2a (`ChartPattern`).
 
 ## 0. Executive Summary & Objective
 
