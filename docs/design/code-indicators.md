@@ -1,7 +1,7 @@
 # `tantra-market-indicators` — Streaming Indicator Catalog Reference
 
 Documents `crates/tantra-market-indicators/src/`: the shared `Indicator`
-trait and its 32 implemented indicator families, plus the screener and render
+trait and its streaming indicator families, plus the screener and render
 contracts. Pure compute — no `tokio`, no I/O, WASM-portable.
 
 ## The `Indicator` Trait (`indicator.rs`)
@@ -22,20 +22,22 @@ holds only the state it needs, so it can run over an unbounded live stream.
 `update` returns `None` until the indicator has primed. A GAT input lets ATR
 etc. read `&Bar` without cloning.
 
-## Indicator Catalog (32)
+## Indicator Catalog
 
 | Family | Type(s) |
 |--------|---------|
 | Moving averages | `Sma`, `Ema`, `Rma`, `HullMa`, `Vwap` |
 | Oscillators | `Rsi`, `Stochastic`, `Cci`, `Cmo`, `Roc`, `Kst`, `Trix`, `Mfi`, `ChaikinMoneyFlow`, `MassIndex`, `UltimateOscillator`, `WilliamsR`, `FisherTransform` |
-| Bands / channels | `BollingerBands`, `KeltnerChannels`, `Donchian`, `Atr`, `Supertrend`, `Vortex` |
-| Trend / structure | `Adx`, `Aroon`, `Macd`, `Ichimoku`, `ParabolicSar`, `ElderRay`, `Cpr`, `PivotPoints` |
+| Bands / channels / stops | `BollingerBands`, `KeltnerChannels`, `Donchian`, `Atr`, `AdrPct`, `ChandelierExit`, `Supertrend`, `Vortex` |
+| Trend / structure | `Adx`, `Aroon`, `Macd`, `Ichimoku`, `ParabolicSar`, `ElderRay`, `Cpr`, `PivotPoints`, `OrderBlock` |
+| Session / options | `ElephantZones`, `OiLevels`, `GammaProfile` |
 | Volume | `Obv` |
 
-All 32 are re-exported from `lib.rs` together with the `Indicator` trait.
+All are re-exported from `lib.rs` together with the `Indicator` trait.
 `bar_f64` / `quantity_f64` read exact `Price`/`Quantity` as the `f64` input
-most indicators consume — the documented indicator-layer float boundary
-(indicators are numeric transforms, not domain aggregates).
+legacy indicators consume; `Atr`, `Cmo`, `AdrPct`, `ChandelierExit`,
+`ElephantZones`, `OiLevels`, `GammaProfile`, and `OrderBlock` compute in exact
+`Decimal`.
 
 ## Screener (`screener.rs`)
 

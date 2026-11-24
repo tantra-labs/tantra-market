@@ -22,12 +22,14 @@
 //! }
 //! ```
 
+pub mod adr_pct;
 pub mod adx;
 pub mod aroon;
 pub mod atr;
 pub mod bollinger;
 pub mod cci;
 pub mod chaikin_money_flow;
+pub mod chandelier;
 pub mod cmo;
 pub mod cpr;
 pub mod donchian;
@@ -63,11 +65,13 @@ pub mod vortex;
 pub mod vwap;
 pub mod williams_r;
 
+pub use adr_pct::AdrPct;
 pub use aroon::{Aroon, AroonValue};
 pub use atr::Atr;
 pub use bollinger::{BollingerBands, BollingerValue};
 pub use cci::Cci;
 pub use chaikin_money_flow::ChaikinMoneyFlow;
+pub use chandelier::{ChandelierExit, ChandelierExitValue};
 pub use cmo::Cmo;
 pub use cpr::Cpr;
 pub use donchian::{Donchian, DonchianValue};
