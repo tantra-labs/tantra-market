@@ -7,7 +7,7 @@
 ## What's stubbed or hardcoded
 
 - `crates/tantra-market-store/src/parquet_ticks.rs:134-150` `open()` reads every `*.parquet` under `ticks/` into `Vec<QuoteTick>/Vec<TradeTick>/Vec<DepthTick>`. `read_quotes` (`crates/tantra-market-store/src/parquet_ticks.rs:191-201`) is a linear scan with `.cloned()`. There is no date/instrument pruning although the Hive layout (`exchange=/date=/symbol.parquet`, `crates/tantra-market-store/src/lakehouse.rs:1012-1035`) allows it.
-- `crates/tantra-market-store/src/open_interest.rs:218-250` eagerly loads all OI files into a `BTreeMap`; `crates/tantra-market-store/src/instruments.rs:130,194` eagerly `read_dir`s the catalog.
+- `crates/tantra-market-store/src/open_interest.rs:218-250` eagerly loads all OI files into a `BTreeMap`; `crates/tantra-market-store/src/instruments.rs:130` (`open`) eagerly `read_dir`s the whole catalog (`:194`).
 - 20+ direct `std::fs::File::open/read_dir` call sites across `crates/tantra-market-store/src`; no `ObjectStore`/`opendal` trait. Only `recorder.rs:137` uses `spawn_blocking`. `open()` is called from async bootstrap (runtime `market_feed.rs`).
 - `Cargo.toml` has `arrow`/`parquet` but no `object_store`; paths are `&Path` everywhere.
 
