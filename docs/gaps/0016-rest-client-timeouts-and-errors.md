@@ -6,14 +6,14 @@
 
 ## What's stubbed or hardcoded
 
-- `crates/tantra-market-dhan/src/lib.rs:378` and `crates/tantra-market-zerodha/src/lib.rs:319` build a new `reqwest::Client` per `fetch_snapshot` call with the default (unbounded) timeout.
-- The access token is stored as a plain `String` field in `DhanFeed` / `KiteFeed` (no redacted `Debug`, no zeroize).
-- Every non-2xx maps to `MdError::Auth` (`crates/tantra-market-dhan/src/lib.rs:~385-391`, `crates/tantra-market-zerodha/src/lib.rs:~326-331`), including 429 and 5xx.
+- `crates/tantra-market-dhan/src/lib.rs` and `crates/tantra-market-zerodha/src/lib.rs` build a new `reqwest::Client` per `fetch_snapshot` call with the default (unbounded) timeout.
+- `api_key` / snapshot REST client construction lacks a pooled `HttpTransport` and zeroizing secret wrapper (token rotation and redacted `Debug` on `DhanFeed` / `KiteFeed` / `StaticTokenProvider` landed in closed gap 0010).
+- Every non-2xx maps to `MdError::Auth`, including 429 and 5xx.
 - No integration with the `tantra-exec` token bucket; REST quote limits are per broker.
 
 ## Why
 
-A hung snapshot call during reconciliation blocks resubscription. A 429 is reported as an auth failure and could trigger a bogus re-login. Plain-`String` tokens risk leaking through `Debug` output (`.agents/rules/security-and-secrets.md` §3.3, §4.3).
+A hung snapshot call during reconciliation blocks resubscription. A 429 is reported as an auth failure and could trigger a bogus re-login. Unpooled clients allocate connections per snapshot, and plain strings lack `Zeroize` (`.agents/rules/security-and-secrets.md` §3.3, §4.3).
 
 ## How to close it
 
@@ -26,4 +26,4 @@ A hung snapshot call during reconciliation blocks resubscription. A 429 is repor
 ## Related
 
 - Root gap 0011 (credential/token leakage across Rust and Python).
-- [0010](0010-ws-client-resilience-and-token-logging.md) (token in WS URL and logs).
+- Closed gap [0010](../gaps/README.md#closed-gaps) (WS handshake/resilience/URL redaction closed 2026-11-25).

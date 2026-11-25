@@ -9,8 +9,8 @@ broker adapters build on.
 
 | Module | Purpose |
 |--------|---------|
-| `lib.rs` | `MarketDataFeed` trait, `Mode`, `Subscription`, `SymbolMapper`, `CoalescingTickBuffer`, `ReconnectionManager`, `MarketDataEnricher`, `FeedHealth`, `MdError`, `ConnectionStatus` |
-| `ws_client.rs` | `WsClient`, `WsConfig`, `WsMessage`/`WsOutMessage`, `WsConnectionState`, `WsError` — tokio-tungstenite + rustls transport with heartbeat, dead-connection detection, exponential-backoff reconnection and jitter |
+| `lib.rs` | `MarketDataFeed` trait, `TokenProvider`/`StaticTokenProvider`, `Mode`, `Subscription`, `SymbolMapper`, `CoalescingTickBuffer`, `ReconnectionManager`, `MarketDataEnricher`, `FeedHealth`, `MdError`, `ConnectionStatus` |
+| `ws_client.rs` | `WsClient`, `WsConfig`, `WsHandshake`/`WsConnectTarget`/`StaticHandshake`, `OnConnectedHook`, `WsHealthSnapshot`, `WsMessage`/`WsOutMessage`, `WsConnectionState`, `WsError`, `redact_url`, `sanitize_error_text`, `compute_backoff_duration` — tokio-tungstenite + rustls transport with redacted logs, heartbeat RTT, dead-connection deadline, exponential backoff with jitter, and subscription replay hook |
 
 ## `MarketDataFeed` Trait
 
@@ -64,13 +64,16 @@ exact-decimal intraday VWAP.
 
 `WsClient` wraps `tokio-tungstenite` with `rustls-tls-native-roots`:
 
-* heartbeat ping/pong on `WsConfig::heartbeat_interval_secs` (default 30 s),
-* dead-connection detection via `last_message_elapsed` (default timeout 90 s),
-* exponential backoff with full jitter up to `max_reconnect_delay_secs`,
-* automatic resubscribe/reconnect state on the `WsConnectionState` enum.
+* dynamic `WsHandshake` port (`prepare() -> WsConnectTarget`) invoked on every (re)connect for live token rotation via `TokenProvider`,
+* redacted URL logging (`redact_url`, `sanitize_error_text`) and redacted `Debug` on handshake/target/credential types,
+* `on_connected(is_reconnect)` hook invoked on every successful handshake so broker adapters replay active subscriptions and call `fetch_snapshot`,
+* active dead-connection deadline in `run_ws_loop` (`dead_connection_timeout_secs`, default 90 s, using `tokio::time::Instant` so `tokio::time::pause()` tests deterministically) + ping/pong `rtt_ms` & `last_heartbeat`,
+* integer-ms exponential backoff with jitter (`compute_backoff_duration`, floor >= 1 s, capped at `max_reconnect_delay_secs`) with real `Reconnecting { attempt }` progression to `WsConnectionState::Failed` (`max_reconnect_attempts`),
+* bounded internal outgoing queue (`1024`) and optional bounded incoming sink (`connect_bounded`) with lock-free `WsHealthSnapshot` counters.
 
 Defaults: `max_reconnect_delay_secs = 60`, `initial_reconnect_delay_secs = 1`,
-`max_message_size = 10 MiB`.
+`heartbeat_interval_secs = 30`, `dead_connection_timeout_secs = 90`,
+`max_message_size = 10 MiB`, `max_reconnect_attempts = Some(10)`.
 
 ## Zero Floats Policy
 

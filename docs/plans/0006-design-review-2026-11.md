@@ -11,7 +11,7 @@ The review found that the live feed path is not resilient: `WsClient` does not r
 
 | Gap | Title | Kind | Severity |
 |---|---|---|---|
-| [0010](../gaps/0010-ws-client-resilience-and-token-logging.md) | WsClient resubscribe, dead-connection timeout, auth refresh, token logging | design-flaw | critical |
+| ~~[0010](../gaps/README.md#closed-gaps)~~ | ~~WsClient resubscribe, dead-connection timeout, auth refresh, token logging~~ (**closed 2026-11-25**) | design-flaw | critical |
 | [0011](../gaps/0011-feed-exact-decimal-and-exchange-ts.md) | Exact-decimal tick-aligned decode and real snapshot `exchange_ts` | design-flaw | high |
 | [0012](../gaps/0012-coalescer-tick-loss.md) | `drain_coalesced` tick loss; coalescer not wired | design-flaw | high |
 | [0013](../gaps/0013-store-memory-bounds-and-object-store.md) | Store memory bounds and object-store port | deployment | high |
@@ -30,7 +30,7 @@ Plan-only items (no standalone gap doc):
 ## 2. Component Specifications & Phases
 
 ### Phase A — Quick, low-risk fixes
-1. Gap 0010 steps 3-5 and log redaction: deadline in `run_ws_loop`, backoff fix, real health counters, URL redaction.
+1. ~~Gap 0010 steps 3-5 and log redaction~~ (**closed 2026-11-25**): deadline in `run_ws_loop`, backoff fix, real health counters, URL redaction.
 2. Gap 0011: shared `round_to_tick` wire helper, non-finite decode error, broker timestamps for snapshots, injected clock.
 3. Gap 0012: fix `drain_coalesced`, drop counters, exchange-time monotonicity with eviction.
 4. Gap 0016: shared timeout-configured transport, status-to-error mapping, redacted credentials type.
@@ -39,7 +39,7 @@ Plan-only items (no standalone gap doc):
 **Gate**: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `make check`, `cargo test -p tantra-market-core --profile prod`, `cargo test -p tantra-market-dhan --profile prod`, `cargo test -p tantra-market-zerodha --profile prod`, `cargo test -p tantra-market-normalizer --profile prod`, `make prod`.
 
 ### Phase B — Structural refactors
-1. Gap 0010 steps 1-2: `WsHandshake` port and `on_connected` replay plus `fetch_snapshot` gap-fill.
+1. ~~Gap 0010 steps 1-2~~ (**closed 2026-11-25**): `WsHandshake` port and `on_connected` replay plus `fetch_snapshot` gap-fill.
 2. Gap 0012 step 4 with R1: per-subscriber `CoalescingTickBuffer` publish, `FeedEvent` stream, `FailoverFeed`, `ReplayFeed`, socket sharding.
 3. Gap 0014: `RefStore::compare_and_swap`, unique temp names, canonical-JSON golden vectors, shared schema files owned by `tantra-data`, cross-language round-trip test.
 4. R2: single numeric core, relative-tolerance Newton/bisection IV, richer `PricingError`, `Black76Model`, golden vectors.

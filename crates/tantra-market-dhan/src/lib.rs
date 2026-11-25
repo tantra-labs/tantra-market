@@ -11,6 +11,9 @@
 //!   full → `Tick::Depth` (5 levels). OI and prev-close packets are *not* ticks; wiring
 //!   them into the OI snapshot store (`tantra-market/docs/gaps/0002`) is a documented
 //!   follow-on.
+//! - Reconnects refresh credentials dynamically via [`TokenProvider`], replay active
+//!   subscriptions from [`ReconnectionManager`], and invoke REST [`MarketDataFeed::fetch_snapshot`]
+//!   reconciliation to fill missed ticks.
 //!
 //! # Zero-floats note
 //!
@@ -21,8 +24,9 @@
 
 pub mod protocol;
 
+use std::collections::{BTreeMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -33,28 +37,87 @@ use protocol::{
 use rust_decimal::Decimal;
 use tantra_core::{DepthLevel, Exchange, InstrumentId, Price, Quantity, Tick};
 use tantra_market_core::{
-    FeedHealth, MarketDataFeed, MdError, Mode, ReconnectionManager, Subscription, SymbolMapper,
-    WsClient,
+    ConnectionStatus, FeedHealth, MarketDataFeed, MdError, Mode, ReconnectionManager,
+    StaticTokenProvider, Subscription, SymbolMapper, TokenProvider, WsClient, WsConfig,
+    WsConnectTarget, WsError, WsHandshake, WsResult,
 };
 use tokio::sync::{RwLock, broadcast, mpsc};
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{debug, warn};
 
+/// Bounded internal frame queue capacity between [`WsClient`] and decode task.
+const DECODE_QUEUE_CAPACITY: usize = 16_384;
+
 /// The official DhanHQ v2 market-feed WebSocket endpoint.
 pub const DEFAULT_WS_URL: &str = "wss://api-feed.dhan.co";
 /// The DhanHQ v2 market-quote REST base (used by [`DhanFeed::fetch_snapshot`]).
 pub const MARKET_QUOTE_URL: &str = "https://api.dhan.co/v2/marketfeed/ltp";
 
+/// Dynamic DhanHQ v2 [`WsHandshake`] building URL query auth on every (re)connect.
+struct DhanHandshake {
+    client_id: String,
+    ws_base_url: String,
+    token_provider: Arc<dyn TokenProvider>,
+}
+
+#[async_trait]
+impl WsHandshake for DhanHandshake {
+    async fn prepare(&self) -> WsResult<WsConnectTarget> {
+        let token = self
+            .token_provider
+            .access_token()
+            .await
+            .map_err(|e| WsError::Connection(e.to_string()))?;
+        let url = format!(
+            "{}?version=2&token={token}&clientId={}&authType=2",
+            self.ws_base_url, self.client_id
+        );
+        Ok(WsConnectTarget::new(url))
+    }
+}
+
 /// Dhan feed adapter implementing the canonical [`MarketDataFeed`] trait.
 pub struct DhanFeed {
     client_id: String,
-    access_token: String,
-    ws_client: WsClient,
+    ws_base_url: String,
+    rest_quote_url: String,
+    token_provider: Arc<dyn TokenProvider>,
+    static_token: Option<Arc<StaticTokenProvider>>,
+    ws_client: Arc<WsClient>,
     mapper: Arc<RwLock<SymbolMapper>>,
     reconnection: Arc<ReconnectionManager>,
     ticks: broadcast::Sender<Tick>,
-    connected: Arc<AtomicBool>,
+    decode_task: Arc<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+impl fmt::Debug for DhanFeed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let health = self.ws_client.health_snapshot();
+        f.debug_struct("DhanFeed")
+            .field("client_id", &self.client_id)
+            .field(
+                "ws_base_url",
+                &tantra_market_core::redact_url(&self.ws_base_url),
+            )
+            .field(
+                "rest_quote_url",
+                &tantra_market_core::redact_url(&self.rest_quote_url),
+            )
+            .field("connected", &health.connected)
+            .field("reconnect_count", &health.reconnect_count)
+            .finish()
+    }
+}
+
+impl Drop for DhanFeed {
+    fn drop(&mut self) {
+        if let Ok(mut guard) = self.decode_task.lock()
+            && let Some(handle) = guard.take()
+        {
+            handle.abort();
+        }
+    }
 }
 
 impl DhanFeed {
@@ -65,62 +128,194 @@ impl DhanFeed {
 
     /// Creates a feed for an explicit WebSocket URL (defaults to [`DEFAULT_WS_URL`]).
     ///
-    /// The access token and client id are embedded in the connection URL as DhanHQ v2
-    /// requires (`?version=2&token=...&clientId=...&authType=2`).
+    /// The access token and client id are supplied on every handshake via [`WsHandshake`]
+    /// (`?version=2&token=...&clientId=...&authType=2`) and never logged verbatim.
     pub fn with_url(
         client_id: impl Into<String>,
         access_token: impl Into<String>,
         ws_url: impl Into<String>,
     ) -> Self {
-        let (client_id, access_token, ws_url) =
-            (client_id.into(), access_token.into(), ws_url.into());
-        let full_url =
-            format!("{ws_url}?version=2&token={access_token}&clientId={client_id}&authType=2");
-        let (ticks, _) = broadcast::channel(16_384);
+        Self::with_ws_config(client_id, access_token, ws_url, WsConfig::default())
+    }
+
+    /// Creates a feed with a mutable static token and custom [`WsConfig`].
+    pub fn with_ws_config(
+        client_id: impl Into<String>,
+        access_token: impl Into<String>,
+        ws_url: impl Into<String>,
+        ws_config: WsConfig,
+    ) -> Self {
+        let static_provider = Arc::new(StaticTokenProvider::new(access_token));
+        Self::build(
+            client_id.into(),
+            ws_url.into(),
+            MARKET_QUOTE_URL.to_string(),
+            static_provider.clone(),
+            Some(static_provider),
+            ws_config,
+        )
+    }
+
+    /// Creates a feed with explicit WebSocket and REST endpoints, a custom dynamic
+    /// [`TokenProvider`], and custom [`WsConfig`].
+    pub fn with_config(
+        client_id: impl Into<String>,
+        ws_url: impl Into<String>,
+        rest_quote_url: impl Into<String>,
+        token_provider: Arc<dyn TokenProvider>,
+        ws_config: WsConfig,
+    ) -> Self {
+        Self::build(
+            client_id.into(),
+            ws_url.into(),
+            rest_quote_url.into(),
+            token_provider,
+            None,
+            ws_config,
+        )
+    }
+
+    fn build(
+        client_id: String,
+        ws_base_url: String,
+        rest_quote_url: String,
+        token_provider: Arc<dyn TokenProvider>,
+        static_token: Option<Arc<StaticTokenProvider>>,
+        ws_config: WsConfig,
+    ) -> Self {
+        let handshake = Arc::new(DhanHandshake {
+            client_id: client_id.clone(),
+            ws_base_url: ws_base_url.clone(),
+            token_provider: token_provider.clone(),
+        });
+        let ws_client = Arc::new(WsClient::from_handshake(handshake, ws_config));
+        let mapper = Arc::new(RwLock::new(SymbolMapper::new()));
+        let reconnection = Arc::new(ReconnectionManager::new());
+        let (ticks, _) = broadcast::channel(DECODE_QUEUE_CAPACITY);
+
+        // Register automatic subscription replay + REST snapshot reconciliation hook.
+        let weak_ws = Arc::downgrade(&ws_client);
+        let hook_reconnection = reconnection.clone();
+        let hook_mapper = mapper.clone();
+        let hook_ticks = ticks.clone();
+        let hook_client_id = client_id.clone();
+        let hook_rest_url = rest_quote_url.clone();
+        let hook_token_provider = token_provider.clone();
+        ws_client.set_on_connected(Arc::new(move |is_reconnect| {
+            let weak_ws = weak_ws.clone();
+            let reconnection = hook_reconnection.clone();
+            let mapper = hook_mapper.clone();
+            let ticks = hook_ticks.clone();
+            let client_id = hook_client_id.clone();
+            let rest_url = hook_rest_url.clone();
+            let token_provider = hook_token_provider.clone();
+            Box::pin(async move {
+                let Some(ws) = weak_ws.upgrade() else {
+                    return Ok(());
+                };
+                let subs = reconnection.get_resubscribe_list().await;
+                if subs.is_empty() {
+                    reconnection.set_status(ConnectionStatus::Connected).await;
+                    return Ok(());
+                }
+                if is_reconnect {
+                    reconnection.set_status(ConnectionStatus::Reconciling).await;
+                }
+                send_dhan_subscriptions(&ws, &mapper, &subs)
+                    .await
+                    .map_err(|e| WsError::Transport(e.to_string()))?;
+
+                if is_reconnect {
+                    let mut seen = HashSet::new();
+                    let instruments: Vec<InstrumentId> = subs
+                        .iter()
+                        .filter(|s| seen.insert(s.instrument.clone()))
+                        .map(|s| s.instrument.clone())
+                        .collect();
+                    match fetch_dhan_snapshot(
+                        &client_id,
+                        &rest_url,
+                        token_provider.as_ref(),
+                        &mapper,
+                        &instruments,
+                    )
+                    .await
+                    {
+                        Ok(snapshot_ticks) => {
+                            for tick in snapshot_ticks {
+                                let _ = ticks.send(tick);
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Dhan reconnect snapshot gap-fill failed: {e}");
+                        }
+                    }
+                }
+
+                reconnection.set_status(ConnectionStatus::Connected).await;
+                Ok(())
+            })
+        }));
+
         Self {
             client_id,
-            access_token,
-            ws_client: WsClient::new(full_url),
-            mapper: Arc::new(RwLock::new(SymbolMapper::new())),
-            reconnection: Arc::new(ReconnectionManager::new()),
+            ws_base_url,
+            rest_quote_url,
+            token_provider,
+            static_token,
+            ws_client,
+            mapper,
+            reconnection,
             ticks,
-            connected: Arc::new(AtomicBool::new(false)),
+            decode_task: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
-    /// Connects to the Dhan tickfeed, authenticating via the URL query parameters, and
-    /// spawns the decode-and-broadcast task.
+    /// Rotate the static access token used on the next reconnect handshake and snapshot call.
+    pub async fn update_access_token(&self, new_token: impl Into<String>) {
+        if let Some(static_provider) = &self.static_token {
+            static_provider.set_token(new_token).await;
+        }
+    }
+
+    /// Connects to the Dhan tickfeed, awaits the initial handshake, and spawns the
+    /// bounded decode-and-broadcast task.
     ///
     /// Call this before [`MarketDataFeed::subscribe`]; the feed errors on subscribe while
     /// disconnected. The underlying [`WsClient`] owns reconnection (exponential backoff
-    /// with jitter) and replays no subscriptions by itself — [`ReconnectionManager`]
-    /// tracks the active set for a follow-on auto-resubscribe on reconnect.
+    /// with jitter, dead-connection detection, dynamic token refresh) and triggers automatic
+    /// subscription replay plus snapshot gap-fill via [`ReconnectionManager`].
     pub async fn connect(&self) -> Result<(), MdError> {
-        let (msg_tx, mut msg_rx) = mpsc::unbounded_channel();
+        if let Ok(mut guard) = self.decode_task.lock()
+            && let Some(handle) = guard.take()
+        {
+            handle.abort();
+        }
+
+        let (msg_tx, mut msg_rx) = mpsc::channel(DECODE_QUEUE_CAPACITY);
         self.ws_client
-            .connect(msg_tx)
+            .connect_bounded(msg_tx)
             .await
             .map_err(|e| MdError::Auth(format!("Dhan feed connect failed: {e}")))?;
+        self.ws_client
+            .wait_initial_connection()
+            .await
+            .map_err(|e| MdError::Transport(format!("Dhan feed connect failed: {e}")))?;
 
         let ticks = self.ticks.clone();
         let mapper = self.mapper.clone();
         let reconnection = self.reconnection.clone();
-        let connected = self.connected.clone();
-        connected.store(true, Ordering::SeqCst);
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             while let Some(message) = msg_rx.recv().await {
                 if message.is_binary {
                     match protocol::decode_packet(&message.payload) {
                         Ok(packet) => {
                             if let FeedPacket::Disconnect { code } = packet {
                                 warn!("Dhan feed disconnected by server: code {code}");
-                                connected.store(false, Ordering::SeqCst);
                                 reconnection
-                                    .set_status(
-                                        tantra_market_core::ConnectionStatus::Disconnected {
-                                            reason: format!("server disconnect code {code}"),
-                                        },
-                                    )
+                                    .set_status(ConnectionStatus::Disconnected {
+                                        reason: format!("server disconnect code {code}"),
+                                    })
                                     .await;
                                 continue;
                             }
@@ -135,10 +330,29 @@ impl DhanFeed {
                 }
             }
         });
+        if let Ok(mut guard) = self.decode_task.lock() {
+            *guard = Some(handle);
+        }
+
         self.reconnection
-            .set_status(tantra_market_core::ConnectionStatus::Connected)
+            .set_status(ConnectionStatus::Connected)
             .await;
         Ok(())
+    }
+
+    /// Disconnect from the Dhan tickfeed and stop background reconnect/decode tasks.
+    pub async fn disconnect(&self) {
+        if let Ok(mut guard) = self.decode_task.lock()
+            && let Some(handle) = guard.take()
+        {
+            handle.abort();
+        }
+        self.ws_client.disconnect().await;
+        self.reconnection
+            .set_status(ConnectionStatus::Disconnected {
+                reason: "disconnected by caller".into(),
+            })
+            .await;
     }
 
     /// The Dhan exchange segment for a canonical exchange.
@@ -154,11 +368,14 @@ impl DhanFeed {
 
     /// The Dhan security id for an instrument: the broker token when attached, else the
     /// registered symbol-mapper key's token, else an error.
-    async fn security_id(&self, instrument: &InstrumentId) -> Result<String, MdError> {
+    async fn security_id(
+        mapper: &RwLock<SymbolMapper>,
+        instrument: &InstrumentId,
+    ) -> Result<String, MdError> {
         if let Some(token) = instrument.token() {
             return Ok(token.to_string());
         }
-        if let Some(key) = self.mapper.read().await.to_broker_key(instrument) {
+        if let Some(key) = mapper.read().await.to_broker_key(instrument) {
             if let Some((_, token)) = key.split_once('|') {
                 return Ok(token.to_string());
             }
@@ -186,6 +403,130 @@ impl DhanFeed {
             Mode::Full => request::UNSUBSCRIBE_FULL,
         }
     }
+}
+
+async fn send_dhan_subscriptions(
+    ws_client: &WsClient,
+    mapper: &RwLock<SymbolMapper>,
+    subs: &[Subscription],
+) -> Result<(), MdError> {
+    let mut by_mode: Vec<(Mode, Vec<DhanInstrument>)> = Vec::new();
+    for sub in subs {
+        let segment = DhanFeed::exchange_segment(sub.instrument.exchange())?;
+        let security_id = DhanFeed::security_id(mapper, &sub.instrument).await?;
+        {
+            let mut m = mapper.write().await;
+            m.register(
+                format!("{}|{security_id}", segment.code()),
+                sub.instrument.clone(),
+            );
+        }
+        if let Some((_, list)) = by_mode.iter_mut().find(|(m, _)| *m == sub.mode) {
+            list.push(DhanInstrument {
+                exchange_segment: segment.name(),
+                security_id,
+            });
+        } else {
+            by_mode.push((
+                sub.mode,
+                vec![DhanInstrument {
+                    exchange_segment: segment.name(),
+                    security_id,
+                }],
+            ));
+        }
+    }
+
+    for (mode, instruments) in by_mode {
+        let request_code = DhanFeed::request_code(mode);
+        for chunk in instruments.chunks(protocol::MAX_INSTRUMENTS_PER_MESSAGE) {
+            let json = subscribe_json(request_code, chunk)
+                .map_err(|e| MdError::SubscriptionFailed(e.to_string()))?;
+            ws_client
+                .send_text(json)
+                .await
+                .map_err(|e| MdError::Transport(e.to_string()))?;
+        }
+    }
+    Ok(())
+}
+
+async fn fetch_dhan_snapshot(
+    client_id: &str,
+    rest_quote_url: &str,
+    token_provider: &dyn TokenProvider,
+    mapper: &RwLock<SymbolMapper>,
+    instruments: &[InstrumentId],
+) -> Result<Vec<Tick>, MdError> {
+    let mut body: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for instrument in instruments {
+        let segment = DhanFeed::exchange_segment(instrument.exchange())?;
+        let security_id = DhanFeed::security_id(mapper, instrument).await?;
+        body.entry(segment.name().to_string())
+            .or_default()
+            .push(security_id);
+    }
+    if body.is_empty() {
+        return Ok(Vec::new());
+    }
+    let access_token = token_provider.access_token().await?;
+    let client = reqwest::Client::new();
+    let response = client
+        .post(rest_quote_url)
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header("access-token", access_token)
+        .header("client-id", client_id)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| MdError::Transport(e.to_string()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(MdError::Auth(format!(
+            "Dhan market-quote snapshot failed with HTTP {status}"
+        )));
+    }
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| MdError::Transport(e.to_string()))?;
+    let now = Utc::now();
+    let mut ticks = Vec::new();
+    let mapper_guard = mapper.read().await;
+    let Some(data) = payload.get("data").and_then(|d| d.as_object()) else {
+        return Err(MdError::Transport(
+            "Dhan market-quote response has no data object".into(),
+        ));
+    };
+    for (segment_name, instruments_map) in data {
+        let Some(segment_code) =
+            ExchangeSegment::from_name(segment_name).map(ExchangeSegment::code)
+        else {
+            continue;
+        };
+        let Some(instruments_map) = instruments_map.as_object() else {
+            continue;
+        };
+        for (security_id, quote) in instruments_map {
+            let Some(last_price) = quote.get("last_price").and_then(|v| v.as_f64()) else {
+                continue;
+            };
+            let key = format!("{segment_code}|{security_id}");
+            let Some(instrument) = mapper_guard.to_canonical(&key) else {
+                continue;
+            };
+            ticks.push(Tick::Ltp {
+                instrument,
+                price: to_price(last_price),
+                volume: Quantity::ZERO,
+                exchange_ts: now,
+                receive_ts: now,
+            });
+        }
+    }
+    drop(mapper_guard);
+    Ok(ticks)
 }
 
 /// Converts a decoded packet into a canonical tick, resolving the wire instrument via the
@@ -289,45 +630,9 @@ impl MarketDataFeed for DhanFeed {
                 "Dhan feed is not connected; call DhanFeed::connect() first".into(),
             ));
         }
-        // Group by mode; each mode maps to its own subscribe request code.
-        let mut by_mode: Vec<(Mode, Vec<DhanInstrument>)> = Vec::new();
+        send_dhan_subscriptions(&self.ws_client, &self.mapper, &subs).await?;
         for sub in subs {
-            let segment = Self::exchange_segment(sub.instrument.exchange())?;
-            let security_id = self.security_id(&sub.instrument).await?;
-            {
-                let mut mapper = self.mapper.write().await;
-                mapper.register(
-                    format!("{}|{security_id}", segment.code()),
-                    sub.instrument.clone(),
-                );
-            }
-            self.reconnection.add_subscription(sub.clone()).await;
-            if let Some((_, list)) = by_mode.iter_mut().find(|(m, _)| *m == sub.mode) {
-                list.push(DhanInstrument {
-                    exchange_segment: segment.name(),
-                    security_id: security_id.clone(),
-                });
-            } else {
-                by_mode.push((
-                    sub.mode,
-                    vec![DhanInstrument {
-                        exchange_segment: segment.name(),
-                        security_id,
-                    }],
-                ));
-            }
-        }
-
-        for (mode, instruments) in by_mode {
-            let request_code = Self::request_code(mode);
-            for chunk in instruments.chunks(protocol::MAX_INSTRUMENTS_PER_MESSAGE) {
-                let json = subscribe_json(request_code, chunk)
-                    .map_err(|e| MdError::SubscriptionFailed(e.to_string()))?;
-                self.ws_client
-                    .send_text(json)
-                    .await
-                    .map_err(|e| MdError::Transport(e.to_string()))?;
-            }
+            self.reconnection.add_subscription(sub).await;
         }
 
         let stream = BroadcastStream::new(self.ticks.subscribe()).filter_map(|result| result.ok());
@@ -336,8 +641,6 @@ impl MarketDataFeed for DhanFeed {
 
     async fn unsubscribe(&self, instruments: &[InstrumentId]) -> Result<(), MdError> {
         for instrument in instruments {
-            // ReconnectionManager tracks the active subscription set; find this
-            // instrument's mode to pick the right unsubscribe request code.
             let resubscribe = self.reconnection.get_resubscribe_list().await;
             let active = resubscribe
                 .iter()
@@ -347,7 +650,7 @@ impl MarketDataFeed for DhanFeed {
                 continue;
             };
             let segment = Self::exchange_segment(subscription.instrument.exchange())?;
-            let security_id = self.security_id(&subscription.instrument).await?;
+            let security_id = Self::security_id(&self.mapper, &subscription.instrument).await?;
             let json = subscribe_json(
                 Self::unsubscribe_request_code(subscription.mode),
                 &[DhanInstrument {
@@ -366,87 +669,25 @@ impl MarketDataFeed for DhanFeed {
     }
 
     async fn fetch_snapshot(&self, instruments: &[InstrumentId]) -> Result<Vec<Tick>, MdError> {
-        // DhanHQ v2 REST market-quote (`POST /v2/marketfeed/ltp`) — used for
-        // reconciliation after reconnection. Body: { segment_name: [security_id, ...] }.
-        let mut body: std::collections::BTreeMap<String, Vec<String>> =
-            std::collections::BTreeMap::new();
-        for instrument in instruments {
-            let segment = Self::exchange_segment(instrument.exchange())?;
-            let security_id = self.security_id(instrument).await?;
-            body.entry(segment.name().to_string())
-                .or_default()
-                .push(security_id);
-        }
-        if body.is_empty() {
-            return Ok(Vec::new());
-        }
-        let client = reqwest::Client::new();
-        let response = client
-            .post(MARKET_QUOTE_URL)
-            .header("Accept", "application/json")
-            .header("Content-Type", "application/json")
-            .header("access-token", &self.access_token)
-            .header("client-id", &self.client_id)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| MdError::Transport(e.to_string()))?;
-        let status = response.status();
-        if !status.is_success() {
-            return Err(MdError::Auth(format!(
-                "Dhan market-quote snapshot failed with HTTP {status}"
-            )));
-        }
-        let payload: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| MdError::Transport(e.to_string()))?;
-        let now = Utc::now();
-        let mut ticks = Vec::new();
-        let mapper = self.mapper.read().await;
-        let Some(data) = payload.get("data").and_then(|d| d.as_object()) else {
-            return Err(MdError::Transport(
-                "Dhan market-quote response has no data object".into(),
-            ));
-        };
-        for (segment_name, instruments_map) in data {
-            let Some(segment_code) =
-                ExchangeSegment::from_name(segment_name).map(ExchangeSegment::code)
-            else {
-                continue;
-            };
-            let Some(instruments_map) = instruments_map.as_object() else {
-                continue;
-            };
-            for (security_id, quote) in instruments_map {
-                let Some(last_price) = quote.get("last_price").and_then(|v| v.as_f64()) else {
-                    continue;
-                };
-                let key = format!("{segment_code}|{security_id}");
-                let Some(instrument) = mapper.to_canonical(&key) else {
-                    continue;
-                };
-                ticks.push(Tick::Ltp {
-                    instrument,
-                    price: to_price(last_price),
-                    volume: Quantity::ZERO,
-                    exchange_ts: now,
-                    receive_ts: now,
-                });
-            }
-        }
-        drop(mapper);
-        Ok(ticks)
+        fetch_dhan_snapshot(
+            &self.client_id,
+            &self.rest_quote_url,
+            self.token_provider.as_ref(),
+            &self.mapper,
+            instruments,
+        )
+        .await
     }
 
     fn feed_health(&self) -> FeedHealth {
+        let health = self.ws_client.health_snapshot();
         FeedHealth {
             name: self.name().to_string(),
-            connected: self.connected.load(Ordering::SeqCst),
-            last_heartbeat: None,
-            rtt_ms: None,
-            dropped_count: 0,
-            reconnect_count: 0,
+            connected: health.connected,
+            last_heartbeat: health.last_heartbeat,
+            rtt_ms: health.rtt_ms,
+            dropped_count: health.dropped_count,
+            reconnect_count: health.reconnect_count,
         }
     }
 }

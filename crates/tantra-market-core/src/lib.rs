@@ -12,14 +12,59 @@ use chrono::{DateTime, Utc};
 use futures::stream::BoxStream;
 use rust_decimal::Decimal;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::{Mutex, RwLock, mpsc};
 
 pub use tantra_core::{Bar, DepthLevel, Exchange, InstrumentId, Price, PriceBand, Quantity, Tick};
 pub use ws_client::{
-    WsClient, WsConfig, WsConnectionState, WsError, WsMessage, WsOutMessage, WsResult,
+    OnConnectedHook, StaticHandshake, WsClient, WsConfig, WsConnectTarget, WsConnectionState,
+    WsError, WsHandshake, WsHealthSnapshot, WsMessage, WsOutMessage, WsResult,
+    compute_backoff_duration, redact_url, sanitize_error_text,
 };
+
+/// Dynamic access-token provider invoked on each (re)connection handshake and REST snapshot call.
+#[async_trait]
+pub trait TokenProvider: Send + Sync {
+    /// Return the active access token for broker authentication.
+    async fn access_token(&self) -> Result<String, MdError>;
+}
+
+/// In-memory [`TokenProvider`] supporting live token rotation via [`Self::set_token`].
+pub struct StaticTokenProvider {
+    token: RwLock<String>,
+}
+
+impl StaticTokenProvider {
+    /// Construct a provider initialized with the given token.
+    pub fn new(token: impl Into<String>) -> Self {
+        Self {
+            token: RwLock::new(token.into()),
+        }
+    }
+
+    /// Replace the active access token for subsequent handshakes and REST snapshots.
+    pub async fn set_token(&self, token: impl Into<String>) {
+        let mut guard = self.token.write().await;
+        *guard = token.into();
+    }
+}
+
+impl fmt::Debug for StaticTokenProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StaticTokenProvider")
+            .field("token", &"[REDACTED]")
+            .finish()
+    }
+}
+
+#[async_trait]
+impl TokenProvider for StaticTokenProvider {
+    async fn access_token(&self) -> Result<String, MdError> {
+        Ok(self.token.read().await.clone())
+    }
+}
 
 /// Subscription depth/mode for market data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
